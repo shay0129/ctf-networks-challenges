@@ -6,8 +6,6 @@ import protocol
 import select
 import signal
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 
@@ -136,11 +134,11 @@ def main():
     global running
     context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
     context.set_ciphers('AES128-SHA256')
-    context.load_cert_chain(certfile=protocol.Path+"server.crt", keyfile=protocol.Path+"server.key")
+    context.load_cert_chain(certfile="server.crt", keyfile="server.key")
     context.verify_mode = ssl.CERT_OPTIONAL  # Allow optional client cert
     context.check_hostname = False
     context.verify_flags = ssl.VERIFY_DEFAULT | ssl.VERIFY_X509_TRUSTED_FIRST
-    context.load_verify_locations(cafile=protocol.Path+"client.crt")  # Trust the client's self-signed cert
+    context.load_verify_locations(cafile="client.crt")  # Trust the client's self-signed cert
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((protocol.SERVER_IP, protocol.SERVER_PORT))

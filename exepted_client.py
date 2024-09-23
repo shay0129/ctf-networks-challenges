@@ -1,4 +1,5 @@
-# client2.py
+# exepted_client.py
+# Advanced Client with Cert and CSR
 import socket
 import ssl
 import protocol
@@ -14,10 +15,10 @@ def send_all(sock, data):
 def client():
     context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
     context.set_ciphers('AES128-SHA256')
-    context.load_cert_chain(certfile=protocol.Path+"client.crt", keyfile=protocol.Path+"client.key")
+    context.load_cert_chain(certfile="client.crt", keyfile="client.key")
     context.check_hostname = False
     context.verify_mode = ssl.CERT_REQUIRED
-    context.load_verify_locations(cafile=protocol.Path+"server.crt")  # Trust the server's self-signed cert
+    context.load_verify_locations(cafile="server.crt")
 
     try:
         with socket.create_connection(('localhost', protocol.SERVER_PORT)) as sock:
@@ -36,20 +37,17 @@ def client():
                 
                 if "Please provide your CSR file" in response:
                     # Send CSR file
-                    with open(protocol.Path+"client.csr", "r") as csr_file:
+                    with open("client.csr", "r") as csr_file:
                         csr_content = csr_file.read()
                     print(f"Sending CSR file (length: {len(csr_content)} bytes)...")
                     send_all(secure_sock, csr_content.encode())
                     print("CSR file sent successfully.")
                     
                     # Receive final response
-                    response = b""
-                    while True:
-                        chunk = secure_sock.recv(4096)
-                        if not chunk:
-                            break
-                        response += chunk
-                    print(f"Received final response: {response.decode()}")
+                    response = secure_sock.recv(4096).decode()
+                    print(f"Received final response: {response}")
+                elif "Flag:" in response:
+                    print("Received the flag!")
                 else:
                     print("Unexpected response from server")
                 
