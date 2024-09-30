@@ -8,7 +8,13 @@ import signal
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-
+import os
+from server_utils import hide_key_in_image
+messages = [
+    "rteng eqmna jibjl kpvq", # Mission Accomplished.
+    "xasfh yynve watta epkas mtqot lhlyi rmmpb ifeuv ygsjl gqynv mxois jmjfh pgzle tposh gsoyb hoars lrmks qignd am", # The encryption key has been secured. Intelligence units can now proceed with decrypting IRGC communications.
+    "xaswp wiqxw tpdih lflyc mykck clqyk sm" # The legacy of the Ritchie Boys lives on.
+]
 
 def print_encryption_key():
     print(f"Use the key: {protocol.ENCRYPTION_KEY}")
@@ -77,13 +83,17 @@ def verify_client_cert(cert, csr_data):
 
 def handle_client_request(ssl_socket):
     try:
+        # Receive HTTP GET request first
+        request = ssl_socket.recv(1024).decode()
+        if not request.startswith("GET /resource"):
+            print("Invalid request")
+            return False
+
         # Check for client certificate
         cert = ssl_socket.getpeercert(binary_form=True)
         if not cert:
             print("No client certificate provided")
-            response = "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n\r\n"
-            response += "Hint: Use a self-signed certificate (Country: IL, CN: Pasdaran.local) to access the resource."
-            ssl_socket.sendall(response.encode())
+            # Don't send any response for clients without certificates
             return False
         
         print("Client certificate received.")
@@ -108,20 +118,45 @@ def handle_client_request(ssl_socket):
         print(f"Received CSR data (length: {len(csr_data)} bytes)")
         
         if verify_client_cert(cert, csr_data):
-            response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n"
-            response += "FLAG{This_Is_Your_Secret_Flag}"
+            print("Valid GET request received. Proceeding with the response.")
+            original_image_path = "ctf_challenge.png"
+            modified_image_path = os.path.join(os.path.expanduser("~"), "ctf_challenge_modified.png")
+
+            enigma_add = 'reflector:UKW_B.{ROTOR,POSITION,RING}:VI,1A,1A/I,17Q,1A/III,12L,1A.PLUGBOARD:bq_cr_di_ej_kw_mt_os_px_uz_gh'
+            modified_image_data = hide_key_in_image(original_image_path, enigma_add)
+                        
+            with open(modified_image_path, 'wb') as f:
+                f.write(modified_image_data)
+            print(f"Look at: {modified_image_path}")
+
+            response = b"HTTP/1.1 200 OK\r\n"
+            response += b"Content-Type: multipart/mixed; boundary=boundary\r\n\r\n"
+            
+            response += b"--boundary\r\n"
+            response += b"Content-Type: image/png\r\n"
+            response += f"Content-Disposition: attachment; filename=\"ctf_challenge_modified.png\"\r\n\r\n".encode()
+            response += modified_image_data + b"\r\n"
+            
+            for msg in messages:
+                response += b"--boundary\r\n"
+                response += b"Content-Type: text/plain\r\n\r\n"
+                response += msg.encode() + b"\r\n"
+                print(msg)
+                time.sleep(5)  # Wait 5 seconds between messages
+            
+            response += b"--boundary--\r\n"
+            
+            ssl_socket.sendall(response)
+            return True
         else:
-            response = "HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain\r\n\r\n"
-            response += "Invalid certificate or CSR. Access denied."
-        
-        print(f"Sending response: {response}")
-        ssl_socket.sendall(response.encode())
-        print("Response sent successfully")
-        return True
+            print("Client certificate verification failed")
+            return False
+
     except Exception as e:
         print(f"Error handling client: {e}")
         return False
-
+    
+    
 # Global flag to indicate if the server should continue running
 running = True
 

@@ -2,6 +2,9 @@
 MAX_MSG_LENGTH = 1024
 SERVER_PORT = 8110
 SERVER_IP = "0.0.0.0"
+SERVER_HOSTNAME = "Pasdaran.local"
 ENCRYPTION_KEY = "0xDEADBEEF"
 CLIENT_IP = '127.0.0.1'
-import os, sys
+
+
+

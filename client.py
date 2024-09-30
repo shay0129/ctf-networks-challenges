@@ -1,3 +1,5 @@
+# client.py
+# Basic HTTP GET Client
 # client1.py
 import socket
 import ssl
