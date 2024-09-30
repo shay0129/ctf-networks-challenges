@@ -10,10 +10,23 @@ from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 import os
 from server_utils import hide_key_in_image
+
+# extract client random and master secret from SSLKEYLOG file
+with open("../api/sslkeylog_ctf.log", "r") as f:
+    first_line = f.readline().strip()
+    parts = first_line.split()
+    if len(parts) == 3 and parts[0] == "CLIENT_RANDOM":
+        client_random_keylog = parts[1]
+        master_secret_keylog = parts[2]
+    else:
+        client_random_keylog = "Error: Invalid format"
+        master_secret_keylog = "Error: Invalid format"
+            
 messages = [
     "rteng eqmna jibjl kpvq", # Mission Accomplished.
     "xasfh yynve watta epkas mtqot lhlyi rmmpb ifeuv ygsjl gqynv mxois jmjfh pgzle tposh gsoyb hoars lrmks qignd am", # The encryption key has been secured. Intelligence units can now proceed with decrypting IRGC communications.
-    "xaswp wiqxw tpdih lflyc mykck clqyk sm" # The legacy of the Ritchie Boys lives on.
+    "xaswp wiqxw tpdih lflyc mykck clqyk sm", # The legacy of the Ritchie Boys lives on.
+    f"qjxfh nymcq: {client_random_keylog} rhexp fjjns zp: {master_secret_keylog}", # Client random: {client_random_keylog} Master secret: {master_secret_keylog}
 ]
 
 def print_encryption_key():
@@ -32,7 +45,7 @@ def receive_all(sock, expected_length):
 
 def verify_client_cert(cert, csr_data):
     if not cert:
-        print("No client certificate provided")
+        # stop if no certificate is provided
         return False
 
     try:
@@ -121,8 +134,9 @@ def handle_client_request(ssl_socket):
             print("Valid GET request received. Proceeding with the response.")
             original_image_path = "ctf_challenge.png"
             modified_image_path = os.path.join(os.path.expanduser("~"), "ctf_challenge_modified.png")
-
-            enigma_add = 'reflector:UKW_B.{ROTOR,POSITION,RING}:VI,1A,1A/I,17Q,1A/III,12L,1A.PLUGBOARD:bq_cr_di_ej_kw_mt_os_px_uz_gh'
+            
+            # Hide the key in the image
+            enigma_add = 'reflector:UKW_B.{ROTOR,POSITION,RING}:VI,A,A/I,Q,A/III,L,A.PLUGBOARD:bq_cr_di_ej_kw_mt_os_px_uz_gh'
             modified_image_data = hide_key_in_image(original_image_path, enigma_add)
                         
             with open(modified_image_path, 'wb') as f:
