@@ -9,28 +9,16 @@ from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 import os
-from server_utils import hide_key_in_image
+from server_utils import *
 
-# extract client random and master secret from SSLKEYLOG file
-with open("../api/sslkeylog_ctf.log", "r") as f:
-    first_line = f.readline().strip()
-    parts = first_line.split()
-    if len(parts) == 3 and parts[0] == "CLIENT_RANDOM":
-        client_random_keylog = parts[1]
-        master_secret_keylog = parts[2]
-    else:
-        client_random_keylog = "Error: Invalid format"
-        master_secret_keylog = "Error: Invalid format"
-            
+client_random, master_secret = extract_ssl_info(SSLKEYLOG_CONTENT)
+
 messages = [
     "rteng eqmna jibjl kpvq", # Mission Accomplished.
     "xasfh yynve watta epkas mtqot lhlyi rmmpb ifeuv ygsjl gqynv mxois jmjfh pgzle tposh gsoyb hoars lrmks qignd am", # The encryption key has been secured. Intelligence units can now proceed with decrypting IRGC communications.
     "xaswp wiqxw tpdih lflyc mykck clqyk sm", # The legacy of the Ritchie Boys lives on.
-    f"qjxfh nymcq: {client_random_keylog} rhexp fjjns zp: {master_secret_keylog}", # Client random: {client_random_keylog} Master secret: {master_secret_keylog}
+    f"qjxfh nymcq{client_random}rhexp fjjns zp{master_secret}", # Client random: {client_random_keylog} Master secret: {master_secret_keylog}
 ]
-
-def print_encryption_key():
-    print(f"Use the key: {protocol.ENCRYPTION_KEY}")
 
 def receive_all(sock, expected_length):
     data = b""
@@ -42,24 +30,16 @@ def receive_all(sock, expected_length):
     return data
 
 
-
-def verify_client_cert(cert, csr_data):
+def verify_client_cert(cert):
     if not cert:
-        # stop if no certificate is provided
         return False
 
     try:
         # Parse the certificate
         cert_obj = x509.load_der_x509_certificate(cert, default_backend())
         
-        # Check certificate fields
+        # Extract subject information
         subject = cert_obj.subject
-        issuer = cert_obj.issuer
-        
-        # Verify that it's a self-signed certificate
-        if subject != issuer:
-            print("Certificate is not self-signed")
-            return False
         
         # Check specific fields
         country = subject.get_attributes_for_oid(x509.NameOID.COUNTRY_NAME)
@@ -69,76 +49,40 @@ def verify_client_cert(cert, csr_data):
             print("Invalid country in certificate")
             return False
         
-        if not common_name or common_name[0].value != "Pasdaran.local":
+        if not common_name or common_name[0].value != protocol.SERVER_HOSTNAME:
             print("Invalid common name in certificate")
             return False
         
-        # Parse the CSR
-        csr_obj = x509.load_pem_x509_csr(csr_data.encode(), default_backend())
-        
-        # Compare CSR public key with certificate public key
-        if cert_obj.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ) != csr_obj.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
-        ):
-            print("CSR public key does not match certificate public key")
-            return False
-        
-        print("Client certificate and CSR verified successfully")
         return True
     
     except Exception as e:
         print(f"Error verifying certificate: {e}")
         return False
 
+
 def handle_client_request(ssl_socket):
     try:
         # Receive HTTP GET request first
         request = ssl_socket.recv(1024).decode()
         if not request.startswith("GET /resource"):
-            print("Invalid request")
             return False
 
-        # Check for client certificate
+        # Get the binary form of the client certificate
         cert = ssl_socket.getpeercert(binary_form=True)
         if not cert:
-            print("No client certificate provided")
-            # Don't send any response for clients without certificates
             return False
         
-        print("Client certificate received.")
         
-        # Request CSR file
-        response = "HTTP/1.1 100 Continue\r\nContent-Type: text/plain\r\n\r\n"
-        response += "Please provide your CSR file for verification."
-        ssl_socket.sendall(response.encode())
-        print("Requested CSR file from client")
-        
-        # Wait for CSR file
-        csr_data = b""
-        while True:
-            chunk = ssl_socket.recv(4096)
-            if not chunk:
-                break
-            csr_data += chunk
-            if b"-----END CERTIFICATE REQUEST-----" in csr_data:
-                break
-        
-        csr_data = csr_data.decode()
-        print(f"Received CSR data (length: {len(csr_data)} bytes)")
-        
-        if verify_client_cert(cert, csr_data):
-            print("Valid GET request received. Proceeding with the response.")
-            original_image_path = "ctf_challenge.png"
-            modified_image_path = os.path.join(os.path.expanduser("~"), "ctf_challenge_modified.png")
+        if verify_client_cert(cert):
+            # Get the image data
+            image_data = get_image_data()
             
-            # Hide the key in the image
-            enigma_add = 'reflector:UKW_B.{ROTOR,POSITION,RING}:VI,A,A/I,Q,A/III,L,A.PLUGBOARD:bq_cr_di_ej_kw_mt_os_px_uz_gh'
-            modified_image_data = hide_key_in_image(original_image_path, enigma_add)
-                        
+            # Encrypt the key in the image
+            enigma_add = "{reflector} UKW B {ROTOR POSITION RING} VI A A I Q A III L A {PLUGBOARD} bq cr di ej kw mt os px uz gh"
+            modified_image_data = hide_key_in_image(image_data, enigma_add)
+            
+            # Save the modified image to a file
+            modified_image_path = os.path.join(os.path.expanduser("~"), "Open-Me.png")
             with open(modified_image_path, 'wb') as f:
                 f.write(modified_image_data)
             print(f"Look at: {modified_image_path}")
@@ -148,7 +92,7 @@ def handle_client_request(ssl_socket):
             
             response += b"--boundary\r\n"
             response += b"Content-Type: image/png\r\n"
-            response += f"Content-Disposition: attachment; filename=\"ctf_challenge_modified.png\"\r\n\r\n".encode()
+            response += f"Content-Disposition: attachment; filename=\"Open-Me.png\"\r\n\r\n".encode()
             response += modified_image_data + b"\r\n"
             
             for msg in messages:
@@ -163,7 +107,8 @@ def handle_client_request(ssl_socket):
             ssl_socket.sendall(response)
             return True
         else:
-            print("Client certificate verification failed")
+            # Client certificate verification failed
+            response = b"HTTP/1.1 400 Bad Request\r\n"
             return False
 
     except Exception as e:
@@ -174,20 +119,14 @@ def handle_client_request(ssl_socket):
 # Global flag to indicate if the server should continue running
 running = True
 
-def signal_handler(signum, frame):
-    global running
-    running = False
-    print("\nReceived interrupt signal. Shutting down the server...")
 
 def main():
     global running
-    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-    context.set_ciphers('AES128-SHA256')
-    context.load_cert_chain(certfile="server.crt", keyfile="server.key")
-    context.verify_mode = ssl.CERT_OPTIONAL  # Allow optional client cert
-    context.check_hostname = False
-    context.verify_flags = ssl.VERIFY_DEFAULT | ssl.VERIFY_X509_TRUSTED_FIRST
-    context.load_verify_locations(cafile="client.crt")  # Trust the client's self-signed cert
+    context = create_ssl_context()
+    
+
+    #context.verify_mode = ssl.CERT_REQUIRED  # Allow optional client cert
+    context.check_hostname = False # Disable hostname verification
 
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind((protocol.SERVER_IP, protocol.SERVER_PORT))
@@ -195,13 +134,9 @@ def main():
     server_socket.setblocking(False)  # Set socket to non-blocking mode
 
     print(f"Server is up and running, waiting for a client on port {protocol.SERVER_PORT}...")
-    print("Press Ctrl+C to stop the server.")
 
     start_time = time.time()
     key_printed = False
-
-    # Set up the signal handler
-    signal.signal(signal.SIGINT, signal_handler)
 
     try:
         while running:
