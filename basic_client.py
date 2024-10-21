@@ -7,12 +7,30 @@ import time
 import os
 # pyinstaller --onefile basic_client.py
 def create_hint_file():
-    hint = """CTF_CHALLENGE_HINT: 
-    1. Have you talked to your Certificate Authority yet? 
-    2. Wait a second... do you really need one for this challenge?
-    3. Sometimes, trust can begin with oneself. How might this apply to certificates?
-    4. In Python's ssl module, there might be a way to establish a secure connection without a CA's blessing.
-    5. Remember, in the real world, bypassing proper certificate validation can be risky. Why is that?"""
+    hint = """CTF_CHALLENGE_HINT:
+Python SSL Socket Template:
+
+# 1. Create SSL Context
+- context = ssl.SSLContext(ssl.PROTOCOL_TLSv...)
+- cipher: ...
+- load...
+
+# 2. Create TCP Connection
+sock = socket.create_connection((host, port))
+
+# 3. Wrap Socket with SSL
+secure_sock = context.wrap_socket(sock)
+
+# 4. Send HTTP Request
+
+# 5. Receive Responses
+
+# 6. Close Connection
+
+# Tip: Use openssl.
+
+    Good luck!"""
+    
     user_home = os.path.expanduser('~')
     ctf_temp_dir = os.path.join(user_home, 'CTF_TEMP')
     os.makedirs(ctf_temp_dir, exist_ok=True)  # Create CTF_TEMP directory if it doesn't exist
@@ -20,6 +38,13 @@ def create_hint_file():
     with open(hint_file_path, 'w') as f:
         f.write(hint)
     return hint_file_path
+
+def create_client_ssl_context():
+    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+    context.set_ciphers('AES128-SHA256')
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE  # Disable server cert verification for simplicity
+    return context
 
 def main():
     # Create a hint file
@@ -33,25 +58,26 @@ def main():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     
     # Create SSL context
-    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-    context.set_ciphers('AES128-SHA256')
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE  # Disable server cert verification for simplicity
+    context = create_client_ssl_context()
     
     server_address = (protocol.SERVER_IP, protocol.SERVER_PORT)
-    #print(f"Connecting to {server_address[0]}:{server_address[1]}...")
+    print(f"Connecting to {server_address[0]}:{server_address[1]}...")
     
     try:
-    
-        sock.connect(server_address)
-        
-        # Send HTTP GET request
-        request = f"GET /resource HTTP/1.1\r\nHost: {protocol.SERVER_HOSTNAME}\r\n\r\n"
-        sock.send(request.encode())
-        
-        # Wait for server response
-        response = sock.recv(4096).decode()
-        print("Server response:", response)
+        # Wrap the socket with SSL and connect
+        with context.wrap_socket(sock, server_hostname=protocol.SERVER_HOSTNAME) as secure_sock:
+            secure_sock.connect(server_address)
+            print("SSL/TLS handshake completed")
+            
+            # Send HTTP GET request over the secure connection
+            request = f"GET /resource HTTP/1.1\r\nHost: {protocol.SERVER_HOSTNAME}\r\n\r\n"
+            secure_sock.send(request.encode())
+            
+            # Wait for server response
+            response = secure_sock.recv(4096).decode()
+            print("Server response:", response)
+            """HTTP/1.1 400 Bad Request
+            No client certificate provided"""
 
     except Exception as e:
         print(f"An error occurred: {e}")

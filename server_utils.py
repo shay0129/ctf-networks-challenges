@@ -9,21 +9,16 @@ from io import StringIO
 import tempfile
 
 
-
-def hide_key_in_image(image_path, large_shift)->bytes:
+def hide_key_in_image(image_data, large_shift)->bytes:
     try:
-        with open(image_path, 'rb') as f:
-            image_data = f.read()
-        
-        hidden_message = f"KEY{{{large_shift}}}".encode('utf-8')
-        modified_data = image_data + hidden_message
-        
-        print("Key hidden in image. Returning modified data.")
-        return modified_data
+        if not isinstance(image_data, bytes):
+            raise ValueError("Expected bytes for image_data")
+            
+        #print("Key hidden in image. Returning modified data.")
+        return image_data + f"KEY{{{large_shift}}}".encode('utf-8')
     except Exception as e:
         print(f"Error in hide_key_in_image: {e}")
         raise
-
 
 
 # הכנס את תוכן הקובץ sslkeylog_ctf.log ישירות לקוד
@@ -134,18 +129,16 @@ ymI0dErTaSUdX9bRn2wRGI+lsgM3aQ==
 -----END PRIVATE KEY-----
 """
 
-def create_ssl_context():
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.set_ciphers('AES128-SHA256')
-    
+def temp_cert_to_context(context, cert_file, key_file=None):    
     # Temp files creation for the certificate and key
     with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_cert:
-        temp_cert.write(SERVER_CRT)
+        temp_cert.write(cert_file)
         temp_cert_path = temp_cert.name
     
-    with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_key:
-        temp_key.write(SERVER_KEY)
-        temp_key_path = temp_key.name
+    if key_file:
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_key:
+            temp_key.write(key_file)
+            temp_key_path = temp_key.name
     
     try:
         # Load the certificate and key
