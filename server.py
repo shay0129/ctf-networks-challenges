@@ -38,8 +38,11 @@ def verify_client_cert(cert):
     try:
         cert_obj = x509.load_der_x509_certificate(cert, default_backend())
         subject = cert_obj.subject
+        issuer = cert_obj.issuer
         print(f"Certificate subject: {subject}")
-        
+        print(f"Certificate issuer: {issuer}")
+        print(f"Verifying with CA: ca.crt")
+           
         country = subject.get_attributes_for_oid(x509.NameOID.COUNTRY_NAME)
         print(f"Country: {country[0].value if country else 'None'}")
         
@@ -51,21 +54,21 @@ def verify_client_cert(cert):
 
 def handle_client_request(ssl_socket):
     try:
-        # Receive HTTP GET request first
-        request = ssl_socket.recv(1024).decode()
-        if not request.startswith("GET /resource"):
-            ssl_socket.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\nInvalid request")
-            return False
-
         # Get the binary form of the client certificate
         cert = ssl_socket.getpeercert(binary_form=True)
         if not cert:
-            ssl_socket.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\nNo client certificate provided")
-            print("No client certificate received")
+            ssl_socket.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\n")
+            ssl_socket.sendall(b"No client certificate provided\r\n")
             return False
         
         if not verify_client_cert(cert):
-            ssl_socket.sendall(b"HTTP/1.1 403 Forbidden\r\n\r\nInvalid client certificate")
+            response = b"HTTP/1.1 403 Forbidden\r\n\r\n"
+            response += b"=== Certificate Authority Error ===\n"
+            response += b"The certificate must be signed by a trusted CA\n"
+            response += b"Found guards.crt - this CA must sign your certificate\n"
+            response += b"Hint: OpenSSL is your friend...\n"
+            response += b"=================================\n"
+            ssl_socket.sendall(response)
             return False
 
         # Encrypt the key in the image
@@ -76,46 +79,56 @@ def handle_client_request(ssl_socket):
         modified_image_path = os.path.join(os.path.expanduser("~"), "Open-Me.png")
         with open(modified_image_path, 'wb') as f:
             f.write(modified_image_data)
-        print(f"Look at: {modified_image_path}")
+        #print(f"Look at: {modified_image_path}")
 
+        # בניית התגובה כמחרוזת אחת
         response = b"HTTP/1.1 200 OK\r\n"
         response += b"Content-Type: multipart/mixed; boundary=boundary\r\n\r\n"
         
+        # חלק התמונה
         response += b"--boundary\r\n"
         response += b"Content-Type: image/png\r\n"
         response += f"Content-Disposition: attachment; filename=\"Open-Me.png\"\r\n\r\n".encode()
-        #response += modified_image_data + b"\r\n"
+        response += modified_image_data
+        response += b"\r\n"
         
-        ssl_socket.sendall(response)
-
+        # הודעות טקסט
         for msg in messages:
-            part = b""
-            part += msg.encode() + b"\r\n"
-            ssl_socket.sendall(part)
-            #print(msg)
-            # Instead of sleeping, we could implement a non-blocking delay here
-            # For now, we'll remove the sleep to avoid potential timeouts
-            time.sleep(5)
-
-        ssl_socket.sendall(b"--boundary--\r\n")
+            response += b"--boundary\r\n"
+            response += b"Content-Type: text/plain\r\n\r\n"
+            response += msg.encode()
+            response += b"\r\n"
+        
+        # סיום
+        response += b"--boundary--\r\n\r\n"
+        
+        print(f"Sending response of {len(response)} bytes")
+        ssl_socket.sendall(response)
         return True
 
-    except ssl.SSLError as e:
-        print(f"SSL Error handling client: {e}")
-        ssl_socket.sendall(b"HTTP/1.1 500 Internal Server Error\r\n\r\nSSL Error occurred")
     except Exception as e:
         print(f"Error handling client: {e}")
         ssl_socket.sendall(b"HTTP/1.1 500 Internal Server Error\r\n\r\nAn error occurred")
-    return False
+        return False
 
 def create_server_ssl_context():
     context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
     context.set_ciphers('AES128-SHA256')
     context = temp_cert_to_context(context, SERVER_CRT, SERVER_KEY)
     
-    context.verify_mode = ssl.CERT_REQUIRED  # שינוי מ-CERT_OPTIONAL
+    def verify_callback(conn, cert, errno, depth, result):
+        if not result:
+            print("\n=== Certificate Authority Error ===")
+            print("The certificate must be signed by a trusted CA")
+            print("Found guards.crt - this CA must sign your certificate")
+            print("Hint: OpenSSL is your friend...")
+            print("=================================\n")
+        return result
+    
+    context.verify_mode = ssl.CERT_REQUIRED
     context.verify_flags = ssl.VERIFY_DEFAULT
-    context.load_verify_locations(cafile="ca.crt") # load certificate authority
+    context.verify_callback = verify_callback  # הוספת ה-callback
+    context.load_verify_locations(cafile="../certificates/guards.crt")
     return context
 
     

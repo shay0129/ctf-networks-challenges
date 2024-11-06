@@ -11,23 +11,19 @@ def create_hint_file():
 Python SSL Socket Template:
 
 # 1. Create SSL Context
-- context = ssl.SSLContext(ssl.PROTOCOL_TLSv...)
-- cipher: ...
-- load...
+- context = ssl.SSLContext(ssl.PROTOCOL_TLSv...?)
+- cipher: (...?)
+- trust_chain = ...?  # Server is very picky about this!
 
-# 2. Create TCP Connection
-sock = socket.create_connection((host, port))
+# 2. Create Socket & SSL Wrap
+- socket.create_connection()
+- context.wrap_socket(socket)
 
-# 3. Wrap Socket with SSL
-secure_sock = context.wrap_socket(sock)
+# 3. Send HTTP Request
 
-# 4. Send HTTP Request
+# 4. Receive Responses
 
-# 5. Receive Responses
-
-# 6. Close Connection
-
-# Tip: Use openssl.
+# 5. Close Connection
 
     Good luck!"""
     
@@ -61,13 +57,13 @@ def main():
     context = create_client_ssl_context()
     
     server_address = (protocol.SERVER_IP, protocol.SERVER_PORT)
-    print(f"Connecting to {server_address[0]}:{server_address[1]}...")
+    #print(f"Connecting to {server_address[0]}:{server_address[1]}...")
     
     try:
         # Wrap the socket with SSL and connect
         with context.wrap_socket(sock, server_hostname=protocol.SERVER_HOSTNAME) as secure_sock:
             secure_sock.connect(server_address)
-            print("SSL/TLS handshake completed")
+            #print("SSL/TLS handshake completed")
             
             # Send HTTP GET request over the secure connection
             request = f"GET /resource HTTP/1.1\r\nHost: {protocol.SERVER_HOSTNAME}\r\n\r\n"
@@ -75,15 +71,15 @@ def main():
             
             # Wait for server response
             response = secure_sock.recv(4096).decode()
-            print("Server response:", response)
+            #print("Server response:", response)
             """HTTP/1.1 400 Bad Request
             No client certificate provided"""
 
     except Exception as e:
-        print(f"An error occurred: {e}")
+        None # Ignore connection errors
     finally:
         sock.close()
-        print("Connection closed")
+        #print("Connection closed")
 
 
     # Add delay at the end
