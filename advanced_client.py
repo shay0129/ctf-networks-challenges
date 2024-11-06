@@ -68,7 +68,7 @@ def client():
                         if b'Content-Type: text/plain' in part and b'\r\n\r\n' in part:
                             message = part.split(b'\r\n\r\n', 1)[1].strip()
                             if message:
-                                print(f"Message: {message.decode('utf-8', errors='ignore')}")
+                                print(f"Messsage: {message.decode('utf-8', errors='ignore')}")
                 except Exception as e:
                     print(f"Error parsing response: {e}")
 

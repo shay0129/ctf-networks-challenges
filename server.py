@@ -85,13 +85,6 @@ def handle_client_request(ssl_socket):
         response = b"HTTP/1.1 200 OK\r\n"
         response += b"Content-Type: multipart/mixed; boundary=boundary\r\n\r\n"
         
-        # חלק התמונה
-        response += b"--boundary\r\n"
-        response += b"Content-Type: image/png\r\n"
-        response += f"Content-Disposition: attachment; filename=\"Open-Me.png\"\r\n\r\n".encode()
-        response += modified_image_data
-        response += b"\r\n"
-        
         # הודעות טקסט
         for msg in messages:
             response += b"--boundary\r\n"
@@ -115,19 +108,9 @@ def create_server_ssl_context():
     context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
     context.set_ciphers('AES128-SHA256')
     context = temp_cert_to_context(context, SERVER_CRT, SERVER_KEY)
-    
-    def verify_callback(conn, cert, errno, depth, result):
-        if not result:
-            print("\n=== Certificate Authority Error ===")
-            print("The certificate must be signed by a trusted CA")
-            print("Found guards.crt - this CA must sign your certificate")
-            print("Hint: OpenSSL is your friend...")
-            print("=================================\n")
-        return result
-    
+        
     context.verify_mode = ssl.CERT_REQUIRED
     context.verify_flags = ssl.VERIFY_DEFAULT
-    context.verify_callback = verify_callback  # הוספת ה-callback
     context.load_verify_locations(cafile="../certificates/guards.crt")
     return context
 

@@ -57,7 +57,7 @@ def main():
     context = create_client_ssl_context()
     
     server_address = (protocol.SERVER_IP, protocol.SERVER_PORT)
-    #print(f"Connecting to {server_address[0]}:{server_address[1]}...")
+    print(f"Connecting to {server_address[0]}:{server_address[1]}...")
     
     try:
         # Wrap the socket with SSL and connect
@@ -82,11 +82,25 @@ def main():
         #print("Connection closed")
 
 
-    # Add delay at the end
-    for i in range(30, 0, -1):
-        sys.stdout.write(f"\rTime remaining: {i} seconds")
-        sys.stdout.flush()
-        time.sleep(1)
+    # Add delay and cleanup at the end
+    try:
+        for i in range(30, 0, -1):
+            sys.stdout.write(f"\rTime remaining: {i} seconds{'  ' if i < 10 else ''}")  # הוספת רווחים כדי למחוק שאריות
+            sys.stdout.flush()
+            time.sleep(1)
+        
+        # מחיקת המסך בסוף הספירה לאחור
+        if os.name == 'nt':  # Windows
+            os.system('cls')
+        else:  # Unix/Linux/MacOS
+            os.system('clear')
+        
+    except KeyboardInterrupt:
+        # מחיקת המסך גם אם המשתמש מפסיק באמצע
+        if os.name == 'nt':
+            os.system('cls')
+        else:   # Unix/Linux/MacOS
+            os.system('clear')
 
 
     # Delete the hint file
