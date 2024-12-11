@@ -4,7 +4,7 @@ import ssl
 import time
 import protocol
 import select
-import signal
+from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
@@ -36,21 +36,29 @@ def verify_client_cert(cert):
         return False
 
     try:
+        # load the client certificate
         cert_obj = x509.load_der_x509_certificate(cert, default_backend())
-        subject = cert_obj.subject
-        issuer = cert_obj.issuer
-        print(f"Certificate subject: {subject}")
-        print(f"Certificate issuer: {issuer}")
-        print(f"Verifying with CA: ca.crt")
-           
-        country = subject.get_attributes_for_oid(x509.NameOID.COUNTRY_NAME)
-        print(f"Country: {country[0].value if country else 'None'}")
+        print(f"Certificate subject: {cert_obj.subject}")
+        print(f"Certificate issuer: {cert_obj.issuer}")
+
+        # load the CA public key from ca.crt
+        with open("../certificates/ca.crt", "rb") as ca_file:
+            ca_cert = x509.load_pem_x509_certificate(ca_file.read(), default_backend())
+            ca_public_key = ca_cert.public_key()
         
+        # Verify the signature on the client certificate
+        ca_public_key.verify(
+            cert_obj.signature,
+            cert_obj.tbs_certificate_bytes,
+            padding.PKCS1v15(),
+            cert_obj.signature_hash_algorithm,
+        )
+
+        print("Certificate successfully verified against CA public key")
         return True
     except Exception as e:
-        print(f"Verification error: {e}")
+        print(f"Verification failed: {e}")
         return False
-
 
 def handle_client_request(ssl_socket):
     try:
@@ -65,7 +73,7 @@ def handle_client_request(ssl_socket):
             response = b"HTTP/1.1 403 Forbidden\r\n\r\n"
             response += b"=== Certificate Authority Error ===\n"
             response += b"The certificate must be signed by a trusted CA\n"
-            response += b"Found guards.crt - this CA must sign your certificate\n"
+            response += b"Found ca.crt - this CA must sign your certificate\n"
             response += b"Hint: OpenSSL is your friend...\n"
             response += b"=================================\n"
             ssl_socket.sendall(response)
@@ -111,7 +119,9 @@ def create_server_ssl_context():
         
     context.verify_mode = ssl.CERT_REQUIRED
     context.verify_flags = ssl.VERIFY_DEFAULT
-    context.load_verify_locations(cafile="../certificates/guards.crt")
+
+    # Load the CA certificate, and use public key to verify client certificates
+    context.load_verify_locations(cafile="../certificates/ca.crt")
     return context
 
     

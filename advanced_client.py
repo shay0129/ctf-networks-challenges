@@ -4,7 +4,7 @@ import protocol
 
 def create_client_ssl_context():
     context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-    context.set_ciphers('AES128-SHA256')
+    context.set_ciphers('TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256')
 
     # Load the client certificate and private key
     try:
