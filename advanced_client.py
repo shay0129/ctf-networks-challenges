@@ -1,31 +1,30 @@
+from protocol import ServerConfig, ProtocolConfig
 import socket
 import ssl
-import protocol
 
-def create_client_ssl_context():
+def create_client_ssl_context() -> ssl.SSLContext:
+    """Create an SSL context for the client."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-    context.set_ciphers('TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256')
-
+    context.set_ciphers('AES128-SHA256')
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    
     # Load the client certificate and private key
     try:
-        context.load_cert_chain(certfile="../certificates/client.crt", keyfile="../certificates/client.key")
+        context.load_cert_chain(certfile="client.crt", keyfile="client.key")
         print("Client certificate and key loaded successfully")
     except Exception as e:
         print(f"Error loading client certificate or key: {e}")
-
-    # Disable server cert verification for self-signed certs
-    context.check_hostname = False
-    context.verify_mode = ssl.CERT_NONE  # Disable server cert verification
-
+    
     return context
+
 def client():
     context = create_client_ssl_context()
-    print(f"Connecting to {protocol.SERVER_IP}:{protocol.SERVER_PORT}")
+    print(f"Connecting to {ServerConfig.IP}:{ServerConfig.PORT}...")
 
     try:
-        with socket.create_connection((protocol.SERVER_IP, protocol.SERVER_PORT)) as sock:
-            # הגדרת timeout ארוך יותר
-            sock.settimeout(30)
+        with socket.create_connection((ServerConfig.IP, ServerConfig.PORT)) as sock:
+            sock.settimeout(ProtocolConfig.TIMEOUT)
             
             with context.wrap_socket(sock) as secure_sock:
                 print(f"Handshake successful with {secure_sock.getpeername()}")
@@ -35,17 +34,18 @@ def client():
                 if secure_sock.getpeercert(binary_form=True):
                     print("Client certificate was sent to the server")
                 
-                request = f"GET /resource HTTP/1.1\r\nHost: {protocol.SERVER_HOSTNAME}\r\n\r\n"
+                request = f"GET /resource HTTP/1.1\r\nHost: {ServerConfig.HOSTNAME}\r\n\r\n"
                 secure_sock.sendall(request.encode())
 
                 print("Receiving response...")
                 response = b""
                 total_received = 0
                 
-                # קריאת המידע בחלקים קטנים יותר
+                # Read the response in chunks
                 while True:
                     try:
-                        chunk = secure_sock.recv(1024)  # קריאה של חלקים קטנים יותר
+                        size = 1024  # You might want to adjust this size
+                        chunk = secure_sock.recv(size)
                         if not chunk:
                             break
                         response += chunk
@@ -55,9 +55,10 @@ def client():
                         print("Timeout - continuing...")
                         continue
                     except Exception as e:
+                        print(f"Error receiving data: {e}")
                         if total_received == 0:
-                            raise  # אם לא קיבלנו כלום, נזרוק את השגיאה
-                        break  # אם קיבלנו חלק מהמידע, נמשיך לעיבוד
+                            raise  # If no data was received, raise an error
+                        break  # if partial data was received, continue the loop
                 
                 print(f"\nTotal bytes received: {total_received}")
                 
@@ -68,7 +69,7 @@ def client():
                         if b'Content-Type: text/plain' in part and b'\r\n\r\n' in part:
                             message = part.split(b'\r\n\r\n', 1)[1].strip()
                             if message:
-                                print(f"Messsage: {message.decode('utf-8', errors='ignore')}")
+                                print(f"Message: {message.decode('utf-8', errors='ignore')}")
                 except Exception as e:
                     print(f"Error parsing response: {e}")
 

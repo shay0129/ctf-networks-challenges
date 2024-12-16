@@ -1,305 +1,97 @@
+""" CA Server for signing client CSRs
+
+Initialize CA with details:
+country="IR",
+state="Tehran",
+city="Tehran",
+org_name="IRGC",
+org_unit="Cybersecurity",
+domain_name="IRGC Root CA"
+"""
+
+import traceback
 import socket
 import ssl
+import logging
+from typing import Optional
+from protocol import CAConfig
 import time
-import protocol
-import select
-from cryptography.hazmat.primitives.asymmetric import padding
-from cryptography import x509
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.backends import default_backend
-from cryptography.hazmat.primitives import serialization
-import os
-import datetime
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.serialization import load_pem_private_key
-import tempfile
-from OpenSSL import crypto
-import random
-import traceback
+from ca_server_utils import (
+    create_ca_server_ssl_context,
+    verify_client_csr,
+    sign_csr_with_ca,
+    format_error_response,
+    parse_http_headers,
+    parse_http_request,
+    create_csr,
+    download_file,
+    validate_certificate
+)
 
-def create_ca_cert():
-    """
-    Creates a self-signed Certificate Authority (CA) certificate and key.
-    Returns the CA certificate and private key in PEM format as bytes.
-    """
-    # Define CA details
-    class CA:
-        def __init__(self, country, state, city, org_name, org_unit, domain_name):
-            self.country = country
-            self.state = state
-            self.city = city
-            self.org_name = org_name
-            self.org_unit = org_unit
-            self.domain_name = domain_name
-
-    # Initialize CA with details
-    ca = CA(
-        country="IR",
-        state="Tehran",
-        city="Tehran",
-        org_name="IRGC",
-        org_unit="Cybersecurity",
-        domain_name="IRGC Root CA"
-    )
-
-    # Generate RSA private key for the CA
-    private_key = crypto.PKey()
-    private_key.generate_key(crypto.TYPE_RSA, 4096)
-
-    # Create a self-signed certificate
-    certificate = crypto.X509()
-
-    # Set certificate subject details
-    subject = certificate.get_subject()
-    subject.C = ca.country
-    subject.ST = ca.state
-    subject.L = ca.city
-    subject.O = ca.org_name
-    subject.OU = ca.org_unit
-    subject.CN = ca.domain_name
-
-    # Assign a random serial number to the certificate
-    certificate.set_serial_number(random.getrandbits(64))
-
-    # Set the certificate validity period (1 year)
-    certificate.gmtime_adj_notBefore(0)
-    certificate.gmtime_adj_notAfter(31536000)  # 1 year in seconds
-
-    # Set the issuer as the subject (self-signed)
-    certificate.set_issuer(subject)
-
-    # Set the public key for the certificate
-    certificate.set_pubkey(private_key)
-
-    # Sign the certificate with the private key using SHA-512
-    certificate.sign(private_key, 'sha512')
-
-    # Convert certificate and private key to PEM format
-    ca_certificate = crypto.dump_certificate(crypto.FILETYPE_PEM, certificate)
-    ca_key = crypto.dump_privatekey(crypto.FILETYPE_PEM, private_key)
-
-    # Return the CA certificate and private key as PEM-formatted bytes
-    return ca_certificate, ca_key
-
-def receive_all(sock, expected_length=None):
-    """Receive all data from the socket."""
-    data = b""
-    while True:
-        chunk = sock.recv(protocol.MAX_MSG_LENGTH)
-        if not chunk:
-            break
-        data += chunk
-        if expected_length and len(data) >= expected_length:
-            break
-    return data
-
-def verify_client_csr(csr_data):
-    """Verify the client's Certificate Signing Request (CSR)."""
+def receive_certificate(secure_sock: ssl.SSLSocket, timeout: int = 30, debug: bool = False) -> Optional[bytes]:
     try:
-        csr_obj = x509.load_pem_x509_csr(csr_data, default_backend())
-
-        # Verify signature on CSR
-        csr_obj.public_key().verify(
-            csr_obj.signature,
-            csr_obj.tbs_certrequest_bytes,
-            padding.PKCS1v15(),
-            csr_obj.signature_hash_algorithm,
-        )
-
-        # Validate that the CN matches the expected value
-        subject = csr_obj.subject
-        for attribute in subject:
-            if attribute.oid == x509.NameOID.COMMON_NAME:
-                if attribute.value != "shay-ctf@example.com":
-                    raise ValueError("CSR Common Name does not match expected value.")
-
-        print("CSR verification successful.")
-        return csr_obj
-    except Exception as e:
-        print(f"CSR verification failed: {e}")
-        return None
-
-def sign_ca(csr_obj, ca_cert_pem, ca_key_pem) -> bytes:
-    if ca_cert_pem.startswith(b"-----BEGIN CERTIFICATE-----") and ca_key_pem.startswith(b"-----BEGIN PRIVATE KEY-----"):
-        try:
-            # Load the CA private key from the PEM data
-            ca_key = load_pem_private_key(ca_key_pem, password=None, backend=default_backend())
-
-            # Load the CA certificate to extract the issuer details
-            ca_cert = x509.load_pem_x509_certificate(ca_cert_pem, default_backend())
-            issuer = ca_cert.subject
-
-            # Build the certificate
-            cert = (
-                x509.CertificateBuilder()
-                .subject_name(csr_obj.subject)
-                .issuer_name(issuer)
-                .public_key(csr_obj.public_key())
-                .serial_number(x509.random_serial_number())
-                .not_valid_before(datetime.datetime.utcnow())
-                .not_valid_after(datetime.datetime.utcnow() + datetime.timedelta(days=365))
-                .add_extension(
-                    x509.BasicConstraints(ca=False, path_length=None),
-                    critical=True,
-                )
-                .add_extension(
-                    x509.KeyUsage(
-                        digital_signature=True,
-                        key_encipherment=True,
-                        content_commitment=False,
-                        data_encipherment=False,
-                        key_agreement=False,
-                        encipher_only=False,
-                        decipher_only=False,
-                        key_cert_sign=False,
-                        crl_sign=False,
-                    ),
-                    critical=True,
-                )
-                .sign(ca_key, hashes.SHA256(), default_backend())
-            )
-
-            # Return the signed certificate in PEM format
-            return cert.public_bytes(serialization.Encoding.PEM)
-        except ValueError as e:
-            print(f"Error loading key or certificate: {e}")
-            return None
-        except InvalidSignature as e:
-            print(f"Error signing certificate: {e}")
-            return None
-        except Exception as e:
-            print(f"Unexpected error signing certificate: {e}")
-            return None
-    else:
-        print("Invalid PEM format for CA cert or key")
-        return None
-
-def create_server_ssl_context(cert,key) -> ssl.SSLContext:
-    """Create and configure the server's SSL context."""
-    # Create temporary files for the certificate and key
-    with tempfile.NamedTemporaryFile(delete=False) as cert_file:
-        cert_file.write(cert)
-        cert_file_path = cert_file.name
-
-    with tempfile.NamedTemporaryFile(delete=False) as key_file:
-        key_file.write(key)
-        key_file_path = key_file.name
-
-    # Create an SSL context for the server
-    context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-    context.set_ciphers("AES128-SHA256")
-    context.check_hostname = False
-
-    # Load the certificate and key into the context
-    context.load_cert_chain(certfile=cert_file_path, keyfile=key_file_path)
-
-    return context
-
-def parse_http_request(data):
-    """Parse HTTP request and extract headers and body"""
-    try:
-        # Split headers and body
-        headers_raw, body = data.split(b'\r\n\r\n', 1)
-        
-        # Split headers into lines
-        header_lines = headers_raw.split(b'\r\n')
-        
-        # Parse first line (request line)
-        request_method, request_path, request_version = header_lines[0].split(b' ', 2)
-        
-        # Parse remaining headers
-        headers = {
-            b'request_method': request_method,
-            b'request_path': request_path,
-            b'request_version': request_version
-        }
-        
-        for line in header_lines[1:]:
-            if b':' in line:
-                key, value = line.split(b':', 1)
-                headers[key.strip().lower()] = value.strip()
-        
-        return headers, body
-    except Exception as e:
-        print(f"Error parsing HTTP request: {e}")
-        traceback.print_exc()
-        return None, None
-    
-def receive_certificate(secure_sock, timeout=30, debug=False):
-    try:
-        # Set socket timeout
         secure_sock.settimeout(timeout)
+        full_response = b""
+        total_received = 0
 
-        # קריאת ה-headers
-        headers = b""
-        while b"\r\n\r\n" not in headers:
-            chunk = secure_sock.recv(4096)
-            if not chunk:
-                print("Connection closed while reading headers")
-                return None
-            headers += chunk
+        while True:
+            try:
+                chunk = secure_sock.recv(8192)
+                if not chunk:
+                    logging.info("Connection closed by server")
+                    break
+                    
+                full_response += chunk
+                total_received += len(chunk)
+                
+                # Add debug print to see the full response
+                print("=== Full Server Response ===")
+                print(full_response.decode('utf-8', errors='replace'))
+                print("==========================")
 
-        # פיצול ל-headers ו-body התחלתי
-        header_data, body = headers.split(b"\r\n\r\n", 1)
-        
-        # הדפסת headers לדיבוג
-        print("=== Received Headers ===")
-        print(header_data.decode('utf-8'))
-        print("======================")
-
-        # חיפוש Content-Length
-        content_length = None
-        for line in header_data.split(b"\r\n"):
-            if b"Content-Length:" in line:
-                content_length = int(line.split(b":", 1)[1].strip())
-                print(f"Found Content-Length: {content_length}")
+                headers, body, content_length = parse_http_headers(full_response)
+                
+                if headers is None:
+                    continue
+                    
+                if content_length is None:
+                    logging.error("Invalid or missing Content-Length")
+                    return None
+                    
+                body_bytes = body.encode('utf-8')
+                if len(body_bytes) < content_length:
+                    continue
+                    
+                if len(body_bytes) == content_length:
+                    if validate_certificate(body_bytes):
+                        logging.info(f"Valid certificate received ({len(body_bytes)} bytes)")
+                        return body_bytes
+                    else:
+                        logging.error(f"Invalid certificate format\nReceived body:\n{body}")
+                        return None
+                else:
+                    logging.error("Response body length mismatch")
+                    return None
+                    
+            except ssl.SSLWantReadError:
+                time.sleep(0.1)
+                continue
+            except TimeoutError:
+                logging.warning("Socket timeout")
                 break
-
-        if content_length is None:
-            print("Content-Length header missing")
-            return None
-
-        # קריאת שאר ה-body
-        while len(body) < content_length:
-            chunk = secure_sock.recv(4096)
-            if not chunk:
-                print(f"Connection closed before receiving full body. Got {len(body)} of {content_length} bytes")
-                return None
-            body += chunk
-            if debug:
-                print(f"Received chunk: {len(chunk)} bytes. Total: {len(body)}/{content_length}")
-
-        if len(body) == content_length:
-            if body.startswith(b"-----BEGIN CERTIFICATE-----") and body.endswith(b"-----END CERTIFICATE-----\n"):
-                return body
-            else:
-                print("Invalid certificate format")
-                print("Received data:", body[:100], "...")
-        else:
-            print(f"Body length mismatch. Expected {content_length}, got {len(body)}")
-            
-        return None
-
+            except Exception as e:
+                logging.error(f"Error receiving data: {e}")
+                break
+                
     except Exception as e:
-        print(f"Error receiving certificate: {e}")
-        return None
-def format_error_response(status_line, error_msg):
-    """Helper function to create properly formatted error responses"""
-    error_msg_bytes = error_msg.encode('utf-8') if isinstance(error_msg, str) else error_msg
-    content_length = str(len(error_msg_bytes)).encode('utf-8')
-    
-    response = [
-        status_line,
-        b"Content-Type: text/plain",
-        b"Content-Length: " + content_length,
-        b"Connection: close",
-        b"",
-        b""
-    ]
-    
-    return b"\r\n".join(response) + error_msg_bytes
+        logging.error(f"Fatal error in receive_certificate: {e}")
+        
+    return None
+
 
 def handle_client_request(ssl_socket, ca_cert_pem, ca_key_pem) -> bool:
+    """Handle client request to sign a CSR"""
+    
     try:
         # Receive the initial request data
         request_data = b""
@@ -366,8 +158,8 @@ def handle_client_request(ssl_socket, ca_cert_pem, ca_key_pem) -> bool:
             return False
 
         # Sign the CSR
-        signed_cert = sign_ca(csr_obj, ca_cert_pem, ca_key_pem)
-        if not signed_cert:
+        crt_file = sign_csr_with_ca(csr_pem=body, ca_key_pem=ca_key_pem, ca_cert_pem=ca_cert_pem)
+        if not crt_file:
             response = format_error_response(
                 b"HTTP/1.1 500 Internal Server Error",
                 b"Certificate signing failed"
@@ -376,7 +168,7 @@ def handle_client_request(ssl_socket, ca_cert_pem, ca_key_pem) -> bool:
             return False
 
         # Prepare successful response
-        content_length = str(len(signed_cert)).encode('utf-8')
+        content_length = str(len(crt_file)).encode('utf-8')
         response_headers = [
             b"HTTP/1.1 200 OK",
             b"Content-Type: application/x-pem-file",
@@ -387,13 +179,13 @@ def handle_client_request(ssl_socket, ca_cert_pem, ca_key_pem) -> bool:
         ]
         
         # Create full response
-        response = b"\r\n".join(response_headers) + signed_cert
+        response = b"\r\n".join(response_headers) + crt_file
         
         # Debug logging
         print("=== Response Debug Info ===")
         headers_length = len(b"\r\n".join(response_headers))
         print(f"Headers length: {headers_length} bytes")
-        print(f"Certificate length: {len(signed_cert)} bytes")
+        print(f"Certificate length: {len(crt_file)} bytes")
         print(f"Total response length: {len(response)} bytes")
         print("Headers:")
         try:
@@ -427,16 +219,24 @@ def handle_client_request(ssl_socket, ca_cert_pem, ca_key_pem) -> bool:
             pass
         return False
 
-def main():
-    ca_cert_pem, ca_key_pem = create_ca_cert()
-    context = create_server_ssl_context(ca_cert_pem, ca_key_pem)
+
+def main():    
+    # Create CSR with the correct domain name
+    download_file("ca.crt", CAConfig.CERT)
+    #download_file("ca.key", CAConfig.KEY)
+
+    # Convert cert and key to bytes once
+    cert_bytes = CAConfig.CERT.encode() if isinstance(CAConfig.CERT, str) else CAConfig.CERT
+    key_bytes = CAConfig.KEY.encode() if isinstance(CAConfig.KEY, str) else CAConfig.KEY
+    
+    context = create_ca_server_ssl_context(cert_bytes, key_bytes)
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server_socket:
         server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server_socket.bind((protocol.SERVER_IP, protocol.SERVER_PORT))
+        server_socket.bind((CAConfig.IP, CAConfig.PORT))
         server_socket.listen(5)
 
-        print(f"Server listening on {protocol.SERVER_IP}:{protocol.SERVER_PORT}")
+        print(f"Server listening on {CAConfig.IP}:{CAConfig.PORT}")
 
         try:
             while True:
@@ -445,7 +245,7 @@ def main():
 
                 try:
                     with context.wrap_socket(client_socket, server_side=True) as ssl_socket:
-                        handle_client_request(ssl_socket, ca_cert_pem, ca_key_pem)
+                        handle_client_request(ssl_socket, cert_bytes, key_bytes)
                 except ssl.SSLError as e:
                     print(f"SSL error: {e}")
         except KeyboardInterrupt:
