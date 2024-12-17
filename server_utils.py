@@ -50,16 +50,24 @@ def hide_key_in_image(image_data: bytes, large_shift: str) -> bytes:
         raise
 
 
-def extract_ssl_info(content: str) -> Tuple[Optional[str], Optional[str]]:
-    """Extract client random and master secret from SSL keylog content."""
+def extract_ssl_info(keylog_path: str = r"C:\my-CTF\pcap_creator\tls\logs\ssl_key_log.log") -> Tuple[str, str]:
+   """
+   Extract client random and master secret from SSL keylog content.
+   Format: CLIENT_RANDOM <client_random_hex> <master_secret_hex>
+   """
+   try:
+       with open(keylog_path, 'r') as f:
+           content = f.read()
 
-    lines = content.split('\n')
-    if lines:
-        parts = lines[0].split()
-        if len(parts) >= 3:
-            return parts[1], parts[2]  # client_random, master_secret
-    return None, None
-
+       parts = content.strip().split()
+       if len(parts) == 3 and parts[0] == "CLIENT_RANDOM":
+           return parts[1], parts[2]
+           
+       return None, None
+       
+   except Exception as e:
+       print(f"Error reading keylog file: {e}")
+       return None, None
 
 def print_encryption_key() -> None:
     """Print the encryption key."""
