@@ -221,8 +221,5 @@ class ProtocolConfig:
 
 class SSLConfig:
     """SSL configuration including encryption keys and keylog content."""
-
-    KEYLOG_CONTENT: Final[str] = """CLIENT_RANDOM 674c9c2067f9e80f28a7e8ab3f4b7258525d56d7817da66cc7f4c1a5d15c0a26 7eae1093d76cf2e7211f6dffba3ff17d7bbccd71959e36ec8d1054184f329d804df31b80255df4f1d32bb54b3e72ed27
-CLIENT_RANDOM 674c9c202a3b2205682946e5478da12f7fb455edee653638bcc52ecb3af05a97 24457845ed7fbf2ac4431b3146511aef61202a62f884cf8a92d512a9c3de6ef96337d6aba17e80b0c67acd58c2f7f05c
-"""
+    
     ENCRYPTION_KEY: Final[bytes] = b"shay-ctf-2024"

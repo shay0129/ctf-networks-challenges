@@ -1,14 +1,3 @@
-""" CA Server for signing client CSRs
-
-Initialize CA with details:
-country="IR",
-state="Tehran",
-city="Tehran",
-org_name="IRGC",
-org_unit="Cybersecurity",
-domain_name="IRGC Root CA"
-"""
-
 import traceback
 import socket
 import ssl
@@ -25,69 +14,9 @@ from ca_server_utils import (
     parse_http_request,
     create_csr,
     download_file,
-    validate_certificate
+    validate_certificate,
+    monitor_content_length  # הוספנו את הפונקציה לרשימת הייבוא
 )
-
-def receive_certificate(secure_sock: ssl.SSLSocket, timeout: int = 30, debug: bool = False) -> Optional[bytes]:
-    try:
-        secure_sock.settimeout(timeout)
-        full_response = b""
-        total_received = 0
-
-        while True:
-            try:
-                chunk = secure_sock.recv(8192)
-                if not chunk:
-                    logging.info("Connection closed by server")
-                    break
-                    
-                full_response += chunk
-                total_received += len(chunk)
-                
-                # Add debug print to see the full response
-                print("=== Full Server Response ===")
-                print(full_response.decode('utf-8', errors='replace'))
-                print("==========================")
-
-                headers, body, content_length = parse_http_headers(full_response)
-                
-                if headers is None:
-                    continue
-                    
-                if content_length is None:
-                    logging.error("Invalid or missing Content-Length")
-                    return None
-                    
-                body_bytes = body.encode('utf-8')
-                if len(body_bytes) < content_length:
-                    continue
-                    
-                if len(body_bytes) == content_length:
-                    if validate_certificate(body_bytes):
-                        logging.info(f"Valid certificate received ({len(body_bytes)} bytes)")
-                        return body_bytes
-                    else:
-                        logging.error(f"Invalid certificate format\nReceived body:\n{body}")
-                        return None
-                else:
-                    logging.error("Response body length mismatch")
-                    return None
-                    
-            except ssl.SSLWantReadError:
-                time.sleep(0.1)
-                continue
-            except TimeoutError:
-                logging.warning("Socket timeout")
-                break
-            except Exception as e:
-                logging.error(f"Error receiving data: {e}")
-                break
-                
-    except Exception as e:
-        logging.error(f"Fatal error in receive_certificate: {e}")
-        
-    return None
-
 
 def handle_client_request(ssl_socket, ca_cert_pem, ca_key_pem) -> bool:
     """Handle client request to sign a CSR"""
@@ -111,15 +40,6 @@ def handle_client_request(ssl_socket, ca_cert_pem, ca_key_pem) -> bool:
             ssl_socket.sendall(response)
             return False
 
-        # Verify request method and path
-        if headers.get(b'request_method') != b'POST':
-            response = format_error_response(
-                b"HTTP/1.1 405 Method Not Allowed",
-                b"Only POST method is allowed"
-            )
-            ssl_socket.sendall(response)
-            return False
-
         # Get Content-Length
         try:
             content_length = int(headers.get(b'content-length', b'0'))
@@ -139,6 +59,9 @@ def handle_client_request(ssl_socket, ca_cert_pem, ca_key_pem) -> bool:
                 break
             body += chunk
 
+        # Now we can monitor the content length
+        monitor_content_length(len(body), content_length, "SERVER", "RECEIVED")
+
         if not body:
             response = format_error_response(
                 b"HTTP/1.1 400 Bad Request",
@@ -146,6 +69,7 @@ def handle_client_request(ssl_socket, ca_cert_pem, ca_key_pem) -> bool:
             )
             ssl_socket.sendall(response)
             return False
+        
 
         # Verify and process CSR
         csr_obj = verify_client_csr(body)

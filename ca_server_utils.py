@@ -1,3 +1,4 @@
+""" CA Server Utils"""
 from cryptography.hazmat.primitives.asymmetric import padding as asymmetric_padding
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 from cryptography.hazmat.backends import default_backend
@@ -286,3 +287,26 @@ def validate_certificate(cert_data: bytes) -> bool:
 
     return (cert_data.startswith(b'-----BEGIN CERTIFICATE-----') and 
             cert_data.endswith(b'-----END CERTIFICATE-----\n'))
+
+
+def monitor_content_length(actual_size: int, declared_size: int, source: str, direction: str) -> None:
+    """
+    Monitor and log content length differences
+    
+    Args:
+        actual_size: The actual size of content in bytes
+        declared_size: The declared Content-Length
+        source: 'CLIENT' or 'SERVER'
+        direction: 'SENT' or 'RECEIVED' 
+    """
+    print(f"\n=== Content Length Monitor ===")
+    print(f"Source: {source}")
+    print(f"Direction: {direction}")
+    print(f"Declared Content-Length: {declared_size}")
+    print(f"Actual Size: {actual_size}")
+    
+    if actual_size != declared_size:
+        print(f"WARNING: Size mismatch! Difference: {actual_size - declared_size} bytes")
+    else:
+        print("Status: MATCH")
+    print("===========================\n")

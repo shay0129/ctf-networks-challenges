@@ -30,7 +30,7 @@ logging.basicConfig(
 )
 
 # Extract the client random and master secret from the SSLKEYLOGFILE
-client_random, master_secret = extract_ssl_info(SSLConfig.KEYLOG_CONTENT)
+client_random, master_secret = extract_ssl_info()
 
 # Keylog strings for the client random and master secret
 messages = [
@@ -84,8 +84,8 @@ def verify_client_cert(cert: bytes) -> bool:
         # Check Common Name
         for attr in cert_obj.subject:
             if attr.oid == x509.NameOID.COMMON_NAME:
-                #if attr.value != ClientConfig.HOSTNAME_REQUESTED:
-                if attr.value != ClientConfig.HOSTNAME:
+                if attr.value != ClientConfig.HOSTNAME_REQUESTED:
+                #if attr.value != ClientConfig.HOSTNAME:
                     logging.error(f"Invalid Common Name: {attr.value}")
                     return False
 
