@@ -150,7 +150,7 @@ def handle_client_request(ssl_socket: ssl.SSLSocket, ca_cert_pem: bytes, ca_key_
             pass
         return False
 
-def main() -> None:
+def server() -> None:
     """Main server function. Sets up SSL context and handles incoming connections."""
     
     # Initialize server certificates
@@ -188,4 +188,4 @@ if __name__ == "__main__":
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    main()
+    server()

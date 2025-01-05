@@ -201,7 +201,7 @@ def create_server_ssl_context() -> ssl.SSLContext:
     
     return context
 
-def main() -> None:
+def server():
     """Main server function that handles incoming connections."""
     context = create_server_ssl_context()
 
@@ -266,4 +266,4 @@ if __name__ == '__main__':
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    main()
+    server()
