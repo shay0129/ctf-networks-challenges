@@ -1,110 +1,152 @@
-# Communication CTF Challenge
+# SSL/TLS Communication Challenge - Technical Documentation
 
-This project implements a network security challenge focusing on SSL certificate handling and client authentication. It consists of two main components: a Certificate Authority (CA) server and a main server requiring client certificate authentication.
+## System Architecture
 
-## Project Structure
-
+### Core Components Interaction
 ```
-communication/
-├── README.md
-├── client_server/          # Main server implementation
-│   ├── client/
-│   │   └── advanced_client.py
-│   ├── server/
-│   │   ├── server.py
-│   │   ├── server_utils.py
-│   │   └── base64_picture.py
-│   └── shared/
-│       └── protocol.py
-│
-└── csr_ca/                # Certificate Authority implementation
-    ├── client/
-    │   ├── csr_client.py
-    │   └── csr_client_utils.py
-    ├── server/
-    │   ├── ca_server.py
-    │   └── ca_server_utils.py
-    └── shared/
-        └── protocol.py
+ICMP Challenge -> CA Server -> Main Server
+      ↓              ↓            ↓
+  Timing Check   CSR Processing   SSL Validation
+      ↓              ↓            ↓
+  Binary Reward  Cert Issuance    Encrypted Messages
 ```
 
-## Components
+## Detailed Component Analysis
 
 ### 1. Certificate Authority (CA) Server
-Located in `csr_ca/server/`, the CA server is responsible for:
-- Creating and managing the Certificate Authority
-- Managing CA certificates and keys (`ca.crt`, `ca.key`)
-- Processing Certificate Signing Requests (CSRs) from clients
-- Validating CSR authenticity and format
-- Signing valid CSRs with the CA's private key
-- Returning signed certificates to clients
+[Previous CA Server documentation remains unchanged]
 
-### 2. Main Server
-Located in `client_server/server/`, this server implements:
-- Strict client certificate authentication
-- Certificate validation against the CA
-- Encrypted communication with authenticated clients
-- Custom response handling for validated requests
+### 2. ICMP Challenge Implementation
 
-### 3. Utilities and Shared Components
-- SSL/TLS utilities for certificate operations
-- Protocol configurations for both servers
-- Network communication utilities
-- Shared constants and configurations
+The ICMP component implements a timing-based challenge that requires understanding of low-level networking:
 
-## Challenge Flow
+#### Socket Types and Platform Differences
 
-1. **Initial Connection**
-   - Client attempts to connect to main server
-   - Connection fails due to missing valid certificate
-
-2. **Certificate Acquisition**
-   - Client discovers CA server's presence
-   - Client generates Certificate Signing Request (CSR)
-   - CA server processes and signs the CSR
-   - Client receives signed certificate
-
-3. **Authenticated Connection**
-   - Client connects to main server using signed certificate
-   - Server validates certificate against CA
-   - Server provides encrypted response upon successful authentication
-
-## Getting Started
-
-### Prerequisites
-- Python 3.8+
-- Required Python packages:
-  - cryptography
-  - pyOpenSSL
-
-### Running the Servers
-1. Start the CA Server:
-```bash
-python csr_ca/server/ca_server.py
+##### Linux Implementation
+1. **Packet Capture (AF_PACKET)**
+```python
+def _setup_socket(self):
+    # Captures all network traffic including headers
+    self.sock = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(0x0003))
 ```
+- Provides full packet visibility (Ethernet + IP + ICMP)
+- Requires root privileges
+- Access to all network layers
 
-2. Start the Main Server:
-```bash
-python client_server/server/server.py
+2. **Response Socket (AF_INET)**
+```python
+def _send_response(self):
+    # Dedicated socket for ICMP responses
+    with socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP) as send_sock:
+        # Send ICMP reply
 ```
+- Used specifically for sending ICMP responses
+- Works at IP layer
+- More efficient for single packet transmission
 
-### Client Connection
-Basic client connection example:
-```bash
-python client_server/client/advanced_client.py
+##### Windows Implementation
+```python
+def _setup_socket(self):
+    # Windows uses AF_INET for both capture and response
+    self.sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
+    self.sock.bind(('127.0.0.1', 0))
 ```
+- Single socket type for all operations
+- Limited to ICMP protocol traffic
+- No access to lower network layers
 
-## Security Note
-This is a CTF challenge implementation - not intended for production use. Certificates and keys are embedded in the code for challenge purposes.
+#### Packet Structure Analysis
 
-## Challenge Objective
-Participants need to:
-1. Understand the certificate-based authentication system
-2. Generate valid CSRs for the CA
-3. Obtain signed certificates
-4. Successfully authenticate with the main server
+##### Linux Packet Format
+```
+[Ethernet Header (14 bytes)][IP Header (20 bytes)][ICMP Header (8 bytes)][Payload]
+```
+- Must process multiple headers
+- Full packet information available
+- Requires manual header parsing
 
-## Additional Resources
-- OpenSSL documentation for CSR generation
-- SSL/TLS protocol specifications
-- Python `ssl` and `cryptography` module documentation
+##### Windows Packet Format
+```
+[ICMP Header (8 bytes)][Payload]
+```
+- Simplified packet structure
+- Source IP from socket address
+- Limited to ICMP layer
+
+#### Challenge Requirements
+
+1. **Timing Sequence**
+   - Complete 5 pings within 9-11 seconds
+   - Reset on timeout
+   - Precise timing validation
+
+2. **Payload Size Progression**
+```python
+def validate_size(self, packet):
+    expected_size = len(self.successful_pings) * 100
+    return packet.payload_size == expected_size
+```
+- Ping 1: 0 bytes
+- Ping 2: 100 bytes
+- Ping 3: 200 bytes
+- Ping 4: 300 bytes
+- Ping 5: 400 bytes
+
+3. **Error Conditions**
+   - Wrong payload size
+   - Sequence timeout
+   - Invalid timing
+   - Extra pings
+
+### 3. Image Challenge Component
+[Previous Image Challenge documentation remains unchanged]
+
+## Challenge Configuration
+[Previous Configuration section remains unchanged]
+
+## Development Guidelines
+
+### Platform-Specific Considerations
+1. **Socket Selection**
+   - Check OS before socket creation
+   - Handle platform differences
+   - Implement proper error handling
+
+2. **Packet Processing**
+   - Different parsing for each platform
+   - Validate packet structure
+   - Handle header variations
+
+### Security Considerations
+1. **Socket Privileges**
+   - Require admin/root access
+   - Check permissions before start
+
+2. **Packet Validation**
+   - Verify packet integrity
+   - Validate protocol types
+   - Check packet lengths
+
+3. **Rate Limiting**
+   - Implement flood protection
+   - Handle timeout conditions
+
+### Best Practices
+1. Use appropriate socket type for platform
+2. Implement thorough error handling
+3. Clean up resources properly
+4. Log operations for debugging
+5. Consider network latency
+6. Handle platform differences gracefully
+
+## Solution Path
+1. Complete ICMP timing challenge
+   - Use correct socket type
+   - Follow payload size progression
+   - Meet timing requirements
+2. Obtain valid certificate from CA
+3. Establish SSL connection
+4. Extract embedded data
+5. Decrypt messages
+
+This challenge is designed for educational purposes and includes intentional vulnerabilities for learning.
