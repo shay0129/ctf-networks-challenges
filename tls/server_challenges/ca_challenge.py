@@ -75,7 +75,7 @@ class CAChallenge:
 
             # Validate Content-Length
             try:
-                content_length = int(headers.get(b'content-length', b'0'))
+                content_length = int(headers.get(b'content-length', b'0')) # 0 if not found
             except ValueError:
                 send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid Content-Length")
                 return False

@@ -1,59 +1,48 @@
 """
-Unified SSL Client Module
-Handles both CA certificate requests and server communication
-
-Usage:
-cd communication
-
-python -m tls.client CA
-or
-python -m tls.client SERVER
+Server Communication Client Module
+Handles server communication using client certificates
 """
+import sys
+sys.path.append('C:\\my-CTF\\communication')
+
 import traceback
 import logging
 import socket
 import ssl
-from typing import Optional, Tuple
-import time
+from typing import Optional
 import os
-from tls.protocol import CAConfig, ServerConfig, ProtocolConfig, BurpConfig, ClientConfig
-from tls.utils.client import create_csr, setup_proxy_connection
-from tls.utils.ca import download_file, validate_certificate, parse_http_headers
+from tls.protocol import ServerConfig, ProtocolConfig, BurpConfig, ClientConfig
+from tls.utils.client import setup_proxy_connection
 
-def create_client_ssl_context(use_proxy: bool = False) -> Optional[ssl.SSLContext]:
-    """Create an SSL context for the client."""
+def create_client_ssl_context() -> Optional[ssl.SSLContext]:
+    """Create an SSL context for the client to communicate with server."""
     try:
-        if use_proxy:  # Use proxy for SSL connection (no certificate required)
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS)
-            context.verify_mode = ssl.CERT_NONE
-            context.check_hostname = False
-        else:  # Load client certificate and key
-            context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-            context.set_ciphers('AES128-SHA256')
-            context.check_hostname = False
-            context.verify_mode = ssl.CERT_NONE
-            
-            # Load client certificate and key if available (optional)
-            try:
-                context.load_cert_chain(
-                    certfile=ClientConfig.CLIENT_CERT_PATH,
-                    keyfile=ClientConfig.CLIENT_KEY_PATH
-                )
-                logging.info("Client certificate and key loaded successfully")
-            except FileNotFoundError:
-                logging.error("Certificate files not found. Did you get them from the CA first?")
-                return None
-            except Exception as e:
-                logging.error(f"Error loading certificates: {e}")
-                return None
+        context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+        context.set_ciphers('AES128-SHA256')
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        
+        # Load client certificate and key
+        try:
+            context.load_cert_chain(
+                certfile=ClientConfig.CLIENT_CERT_PATH,
+                keyfile=ClientConfig.CLIENT_KEY_PATH
+            )
+            logging.info("Client certificate and key loaded successfully")
+        except FileNotFoundError:
+            logging.error("Certificate files not found. Did you get them from the CA first?")
+            return None
+        except Exception as e:
+            logging.error(f"Error loading certificates: {e}")
+            return None
 
         return context
     except Exception as e:
         logging.error(f"Error creating SSL context: {e}")
         return None
     
-class CTFClient:
-    """Client for CTF challenge handling both CA and Server communication"""
+class ServerClient:
+    """Client for communicating with the server using client certificates"""
     def __init__(self, use_proxy: bool = False):
         self.use_proxy = use_proxy
         self.obsv_client_random = None
@@ -63,9 +52,17 @@ class CTFClient:
         self.running = True
 
     def init_ssl_context(self) -> bool:
-        """Initialize SSL context based on mode"""
-        self.context = create_client_ssl_context(self.use_proxy)
-        return self.context is not None
+        """Initialize SSL context for server communication"""
+        if self.use_proxy:
+            # Use proxy context
+            self.context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+            self.context.verify_mode = ssl.CERT_NONE
+            self.context.check_hostname = False
+            return True
+        else:
+            # Use normal context with certificates
+            self.context = create_client_ssl_context()
+            return self.context is not None
 
     def handle_server_mode(self) -> None:
         """Handle server communication mode"""
@@ -78,104 +75,10 @@ class CTFClient:
             self.connect_and_communicate()
 
         except FileNotFoundError:
-            logging.error("No valid certificates found. Run in CA mode first to obtain certificates.")
+            logging.error("No valid certificates found. Run the CA client first to obtain certificates.")
         except Exception as e:
             logging.error(f"Error in SERVER mode: {e}")
-
-    def handle_ca_mode(self) -> None:
-        """Handle CA communication mode"""
-        logging.info("=== CA Mode - Getting Certificate ===")
-        try:
-            # Generate CSR
-            client_csr, client_key = self._generate_csr()
-            download_file(ClientConfig.CLIENT_KEY_PATH, client_key)
-            
-            if not self.init_ssl_context():
-                return
-
-            # Connect to CA
-            self.secure_sock = self._establish_ca_connection()
-            if self.secure_sock:
-                with self.secure_sock:
-                    self._handle_ca_communication(client_csr)
-
-        except Exception as e:
-            logging.error(f"Error in CA mode: {e}")
-
-    def _establish_ca_connection(self) -> Optional[ssl.SSLSocket]:
-        """Establish connection to CA server"""
-        try:
-            if self.use_proxy:
-                sock = socket.create_connection((BurpConfig.IP, BurpConfig.PORT))
-                setup_proxy_connection(sock, CAConfig.IP, CAConfig.PORT)
-                return self.context.wrap_socket(sock)
-            else:
-                sock = socket.create_connection((CAConfig.IP, CAConfig.PORT))
-                sock.settimeout(ProtocolConfig.TIMEOUT)
-                return self.context.wrap_socket(sock, server_hostname=CAConfig.HOSTNAME)
-        except Exception as e:
-            logging.error(f"Failed to connect to CA: {e}")
-            return None
-
-    def _generate_csr(self) -> Tuple[bytes, bytes]:
-        """Generate CSR and client key"""
-        logging.info("Generating CSR...")
-        return create_csr(
-            country="IR", 
-            state="Tehran",
-            city="Tehran",
-            org_name="Sharif", 
-            org_unit="Cybersecurity",
-            domain_name=ClientConfig.HOSTNAME_REQUESTED
-        )
-
-    def _handle_ca_communication(self, client_csr: bytes) -> None:
-        """Handle communication with CA server"""
-        if self._send_csr_request(client_csr):
-            time.sleep(2)
-            if self._get_signed_certificate():
-                logging.info("Certificate obtained successfully")
-
-    def _send_csr_request(self, csr: bytes) -> bool:
-        """Send CSR request to CA server"""
-        try:
-            http_request = (
-                f"POST /sign_csr HTTP/1.1\r\n"
-                f"Host: {CAConfig.HOSTNAME}\r\n"
-                f"Content-Length: {len(csr)}\r\n"
-                f"Content-Type: application/x-pem-file\r\n\r\n"
-            ).encode() + csr
-            
-            self.secure_sock.sendall(http_request)
-            logging.info("CSR sent successfully")
-            return True
-        except Exception as e:
-            logging.error(f"Error sending CSR request: {e}")
-            return False
-
-    def _get_signed_certificate(self) -> bool:
-        """Receive the signed certificate from the CA server and save it to a file"""
-        try:
-            crt_data = b""
-            while True:
-                chunk = self.secure_sock.recv(8192)
-                if not chunk:
-                    break
-                crt_data += chunk
-
-            if len(crt_data) == 0:
-                logging.error("No data received for signed certificate")
-                return False
-            
-            with open(ClientConfig.CLIENT_CERT_PATH, 'wb') as crt_file:
-                crt_file.write(crt_data)
-            
-            logging.info(f"Signed certificate saved to {ClientConfig.CLIENT_CERT_PATH}")
-            return True
-        
-        except Exception as e:
-            logging.error(f"Error receiving signed certificate: {e}")
-            return False
+            traceback.print_exc()
 
     def connect_and_communicate(self) -> None:
         """Establish connection and communicate with server"""
@@ -248,7 +151,6 @@ class CTFClient:
         response = b""
         total_received = 0
         
-        
         while self.running:
             try:
                 chunk = self.secure_sock.recv(1024)
@@ -297,27 +199,15 @@ class CTFClient:
             logging.error(f"Error parsing response: {e}")
 
 def main() -> None:
-    """Main function handling certificate acquisition and server communication"""
-    import sys
+    """Main function handling server communication"""
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levelname)s - %(message)s'
+        format='%(asctime)s - %(levellevel)s - %(message)s'
     )
     
-    if len(sys.argv) != 2 or sys.argv[1].upper() not in ['CA', 'SERVER']:
-        print("Usage: python client.py <CA|SERVER>")
-        print("  CA     - Get certificate from CA")
-        print("  SERVER - Communicate with server")
-        return
-
-    mode = sys.argv[1].upper()
     use_proxy = input("Use Burp proxy? (y/n): ").lower().startswith('y')
-    client = CTFClient(use_proxy)
-
-    if mode == 'CA':
-        client.handle_ca_mode()
-    else:
-        client.handle_server_mode()
+    client = ServerClient(use_proxy)
+    client.handle_server_mode()
 
 if __name__ == "__main__":
     main()

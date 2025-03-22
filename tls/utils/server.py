@@ -54,7 +54,7 @@ def cleanup(image_path: str) -> None:
        logging.error(f"Failed to cleanup temporary file: {e}")
 
 # Certificate operations
-def verify_client_cert(cert: bytes) -> bool:
+def verify_client_cert(cert: bytes, ssl_socket: ssl.SSLSocket) -> bool:
    """
    Verify client certificate against CA and check Common Name.
    """
@@ -67,14 +67,20 @@ def verify_client_cert(cert: bytes) -> bool:
        logging.info(f"Certificate subject: {cert_obj.subject}")
        logging.info(f"Certificate issuer: {cert_obj.issuer}")
 
-       # Verify Common Name
+       # Verify Common Name against expected hostname
        for attr in cert_obj.subject:
            if attr.oid == x509.NameOID.COMMON_NAME:
-               if attr.value != ClientConfig.HOSTNAME:
+               
+               # The trigger for CSR MITM challenge - change csr common name
+               if attr.value != ClientConfig.HOSTNAME_REQUESTED: 
                    logging.error(f"Invalid Common Name: {attr.value}")
                    return False
+           
+               else:
+                   logging.info(f"Valid Common Name: {attr.value}")
+                   break
 
-       # Load and verify against CA
+       # Load and verify against CA public key
        try:
            with open(ServerConfig.CA_CERT_PATH, "rb") as ca_file:
                ca_cert = x509.load_pem_x509_certificate(ca_file.read(), default_backend())
@@ -133,37 +139,37 @@ def create_multipart_response(messages: List[str]) -> bytes:
    response += b"--boundary--\r\n\r\n"
    return response
 
-def _temp_cert_to_context(context: ssl.SSLContext, cert_content: Union[str, bytes], key_content: Optional[Union[str, bytes]] = None) -> ssl.SSLContext:
-    """Create temporary files to store the certificate and key, and load them into the SSL context."""
-    cert_path = key_path = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as temp_cert:
-            if isinstance(cert_content, str):
-                temp_cert.write(cert_content.encode())
-            else:
-                temp_cert.write(cert_content)
-            cert_path = temp_cert.name
+# def _temp_cert_to_context(context: ssl.SSLContext, cert_content: Union[str, bytes], key_content: Optional[Union[str, bytes]] = None) -> ssl.SSLContext:
+#     """Create temporary files to store the certificate and key, and load them into the SSL context."""
+#     cert_path = key_path = None
+#     try:
+#         with tempfile.NamedTemporaryFile(mode='wb', delete=False) as temp_cert:
+#             if isinstance(cert_content, str):
+#                 temp_cert.write(cert_content.encode())
+#             else:
+#                 temp_cert.write(cert_content)
+#             cert_path = temp_cert.name
             
-        if key_content:
-            with tempfile.NamedTemporaryFile(mode='wb', delete=False) as temp_key:
-                if isinstance(key_content, str):
-                    temp_key.write(key_content.encode())
-                else:
-                    temp_key.write(key_content)
-                key_path = temp_key.name
+#         if key_content:
+#             with tempfile.NamedTemporaryFile(mode='wb', delete=False) as temp_key:
+#                 if isinstance(key_content, str):
+#                     temp_key.write(key_content.encode())
+#                 else:
+#                     temp_key.write(key_content)
+#                 key_path = temp_key.name
         
-        # Load the certificate and key into the context
-        context.load_cert_chain(certfile=cert_path, keyfile=key_path)
-        return context
-    except Exception as e:
-        logging.error(f"Error processing certificates: {e}")
-        raise
-    finally:
-        # Verifying that the files were created and deleting them
-        if cert_path and os.path.exists(cert_path):
-            os.unlink(cert_path)
-        if key_path and os.path.exists(key_path):
-            os.unlink(key_path)
+#         # Load the certificate and key into the context
+#         context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+#         return context
+#     except Exception as e:
+#         logging.error(f"Error processing certificates: {e}")
+#         raise
+#     finally:
+#         # Verifying that the files were created and deleting them
+#         if cert_path and os.path.exists(cert_path):
+#             os.unlink(cert_path)
+#         if key_path and os.path.exists(key_path):
+#             os.unlink(key_path)
 
 
 
@@ -184,34 +190,48 @@ def handle_ssl_request(ssl_socket: ssl.SSLSocket, messages: List[str]) -> bool:
     """Handle the SSL request from the client"""
     try:
         cert = ssl_socket.getpeercert(binary_form=True)
-        if not verify_client_cert(cert):
+        if not verify_client_cert(cert, ssl_socket):
             response = (
                 b"HTTP/1.1 403 Forbidden\r\n\r\n"
                 b"=== Certificate Authority Error ===\n"
                 b"The certificate must be signed by a trusted CA\n"
                 b"Invalid Common Name in certificate - should be: " + 
-                ClientConfig.HOSTNAME_REQUESTED.encode() + b"\n"  # שימוש ב-HOSTNAME_REQUESTED
+                ClientConfig.HOSTNAME_REQUESTED.encode() + b"\n"
                 b"=================================\n"
             )
             ssl_socket.sendall(response)
             return False
 
-        # Create encrypted config to hide in hex view
-        enigma_add = "{reflector} UKW B {ROTOR_POSITION_RING} VI A A I Q A III L A {PLUGBOARD} bq cr di ej kw mt os px uz gh"
-        modified_image_data = ImageChallenge.hide_key_in_image(ImageChallenge.get_image_data(), enigma_add)
-        
-        # Save pic
-        modified_image_path = "C:/Users/Public/Open-Me.png"
-        with open(modified_image_path, 'wb') as f:
-            f.write(modified_image_data)
-        atexit.register(cleanup, modified_image_path)
-
-        # Send response
-        response = create_multipart_response(messages)
+        # Send another challenge for MITM vs 
+        # response with a sentence. the participant should send a request with it
+        response = (
+            b"HTTP/1.1 200 OK\r\n\r\n"
+            b"Secret Sentence\n"
+        )
         ssl_socket.sendall(response)
-        return True
+        # if sent, the server will send a response with the same sentence
+        request = ssl_socket.recv(1024).decode('utf-8')
+        logging.info(f"Received request: {request}")
+        if request == "Secret Sentence":
+            response = (
+                b"HTTP/1.1 200 OK\r\n\r\n"
+                b"Secret Sentence\n"
+            )
+            # Create encrypted config to hide in hex view
+            enigma_add = "{reflector} UKW B {ROTOR_POSITION_RING} VI A A I Q A III L A {PLUGBOARD} bq cr di ej kw mt os px uz gh"
+            modified_image_data = ImageChallenge.hide_key_in_image(ImageChallenge.get_image_data(), enigma_add)
+            
+            # Save pic
+            modified_image_path = "C:/Users/Public/Open-Me.png"
+            with open(modified_image_path, 'wb') as f:
+                f.write(modified_image_data)
+            atexit.register(cleanup, modified_image_path)
+
+            # Send response
+            response = create_multipart_response(messages)
+            ssl_socket.sendall(response)
+            return True
 
     except Exception as e:
         logging.error(f"Error in SSL request: {e}")
         return False
-        

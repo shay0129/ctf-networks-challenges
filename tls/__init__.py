@@ -9,7 +9,7 @@ from .protocol import (
 from .client import (
     main as client_main
 )
-from .server import (
+from .ctf_server import (
     CTFServer
 )
 

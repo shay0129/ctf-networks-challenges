@@ -14,6 +14,16 @@ logging.info("Available interfaces:")
 # Define the interface to use for sending packets
 conf.iface = dev_from_index(1)  # Replace the number with the index of the loopback interface
 
+# Method 2: Select interface by name (works on most systems)
+for iface_name, iface_data in conf.ifaces.items():
+    if "lo" == iface_name or "Loopback" in str(iface_data):
+        conf.iface = iface_name
+        logging.info(f"Using interface: {conf.iface}")
+        break
+else:
+    logging.error("Loopback interface not found. Please set it manually.")
+    exit(1)
+
 # Define the target IP address
 target_ip = "127.0.0.1"
 

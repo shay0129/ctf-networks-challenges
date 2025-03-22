@@ -36,20 +36,21 @@ class ICMPChallenge:
             
         # Check that the ID matches what our client sends
         if icmp_layer.id != CUSTOM_ICMP_ID:
-            logging.debug(f"Ignoring ICMP packet with ID {icmp_layer.id} (expecting {CUSTOM_ICMP_ID})")
+            logging.debug(f"ID {icmp_layer.id} (expecting {CUSTOM_ICMP_ID})")
             return
 
+        # Calculate the payload size
         payload_size = len(bytes(icmp_layer.payload)) if icmp_layer.payload else 0
-        logging.debug(f"Received ICMP packet from {ip_layer.src} with ID={icmp_layer.id}, seq={icmp_layer.seq}, size={payload_size} bytes")
+        #logging.debug(f"Received ICMP packet from {ip_layer.src} with ID={icmp_layer.id}, seq={icmp_layer.seq}, size={payload_size} bytes")
 
         if len(self.successful_pings) >= 5:
-            logging.info("Too many pings - Challenge failed. Resetting.")
+            logging.info("Too many pings.")
             self.reset_state()
             return
 
         if not self.successful_pings:
             self.start_time = time.time()
-            logging.info("Challenge started. Expecting pings: 0, 100, 200, 300, 400 bytes")
+            #logging.info("Challenge started. Expecting pings: 0, 100, 200, 300, 400 bytes")
 
         expected_size = len(self.successful_pings) * 100
         expected_seq = len(self.successful_pings) + 1
@@ -84,12 +85,11 @@ class ICMPChallenge:
         """ Resets the challenge state """
         self.start_time = None
         self.successful_pings = []
-        logging.debug("Challenge state reset.")
+        #logging.debug("Challenge state reset.")
 
 def start_icmp_server():
     """ Starts the ICMP listener """
-    logging.info("Available interfaces:")
-    #show_interfaces()
+    print("bbHHh!")
     
     # Select interface to listen on - choose the first interface
     interface = dev_from_index(1)  # Or by index (adjust based on show_interfaces output)
@@ -99,10 +99,7 @@ def start_icmp_server():
         logging.info(f"Listening on interface: {interface}")
     else:
         logging.info("Listening on all interfaces")
-    
-    logging.info("ICMP Challenge Server Started")
-    logging.info(f"Send 5 pings with sizes: 0, 100, 200, 300, 400 bytes within 9-11 seconds (using ID 0x{CUSTOM_ICMP_ID:x})")
-    
+
     challenge_handler = ICMPChallenge()
     
     # Define a more specific BPF filter to capture only ICMP echo requests with our specific ID
@@ -110,7 +107,7 @@ def start_icmp_server():
     # BPF filter to capture only ICMP traffic to the local address
     bpf_filter = "icmp and host 127.0.0.1"
     
-    # Start listening
+    # Start listening, and stop when the challenge is completed
     try:
         sniff(
             filter=bpf_filter,

@@ -6,7 +6,7 @@ import socket
 import ssl
 import threading
 
-from tls.server import CTFServer, create_server_ssl_context
+from communication.tls.ctf_server import CTFServer, create_server_ssl_context
 from tls.protocol import ServerConfig
 
 class TestCTFServer(unittest.TestCase):

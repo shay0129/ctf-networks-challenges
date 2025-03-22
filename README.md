@@ -13,10 +13,10 @@ ICMP Challenge -> CA Server -> Main Server
 
 ## Detailed Component Analysis
 
-### 1. Certificate Authority (CA) Server
+### 2. Certificate Authority (CA) Server
 [Previous CA Server documentation remains unchanged]
 
-### 2. ICMP Challenge Implementation
+### 1. ICMP Challenge Implementation
 
 The ICMP component implements a timing-based challenge that requires understanding of low-level networking:
 
