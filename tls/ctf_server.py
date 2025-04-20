@@ -2,202 +2,188 @@
 Server Implementation Module
 Implements sequential CTF challenges starting with ICMP
 
-
-Usage:
-- Run the server script to start the server
-cd C:\my-CTF
-C:\my-CTF\venv\Scripts\python.exe communication\tls\server.py
-
-- The server will run the ICMP challenge first
-- After the ICMP challenge is completed, the server will initialize and run the main server components
-- The server will listen for client connections and handle requests
-- The server will print the encryption key after a delay
 """
-import sys
-sys.path.append('C:\\my-CTF\\communication')
-
+from typing import List, Optional
+import traceback
+import threading
 import logging
 import socket
 import select
 import time
-import threading
-from typing import List, Optional
 import ssl
-from tls.protocol import ServerConfig, ProtocolConfig, SSLConfig
-from tls.utils.server import handle_ssl_request, _temp_cert_to_context
-from tls.server_challenges.icmp_challenge import start_icmp_server
-from tls.server_challenges.ca_challenge import CAChallenge
-from tls.server_challenges.image_challenge import ImageChallenge
-import subprocess
+import queue
+
+from .protocol import ServerConfig, ProtocolConfig, SSLConfig
+from .utils.server import handle_ssl_request, _temp_cert_to_context
+from .server_challenges.icmp_challenge import start_icmp_server
+from .server_challenges.ca_challenge import CAChallenge
+from .server_challenges.enigma_challenge import EnigmaChallenge
 
 class CTFServer:
     """Main CTF server managing all challenges sequentially"""
-    def __init__(self):
+    # Accept queues in constructor
+    def __init__(self, client_update_queue=None, client_message_queue=None):
         self.running = True
         self.icmp_completed = False
         self.ca_challenge = CAChallenge()
-        self.image_challenge = ImageChallenge()
+        self.image_challenge = EnigmaChallenge()
         self.server_socket: Optional[socket.socket] = None
         self.context: Optional[ssl.SSLContext] = None
-        self.client_random = None
-        self.master_secret = None
+        # self.client_random = None # Seems unused
+        # self.master_secret = None # Seems unused
         self.logger = logging.getLogger('server')
+        self.collaborator_sockets: List[ssl.SSLSocket] = [] # Store sockets if needed elsewhere
+        self.collaborator_threads: List[threading.Thread] = []
+        # Store the queues
+        self.client_update_queue = client_update_queue
+        self.client_message_queue = client_message_queue
 
     def run(self) -> None:
-        """Run the server challenges in sequence"""
+        """Runs the ICMP challenge first, then initializes and runs the main TLS server loop if ICMP succeeds."""
         try:
-            # First run ICMP challenge to completion
-            self.run_icmp_challenge()
-            
-            # Wait for ICMP challenge completion before proceeding
-            while not self.icmp_completed:
-                time.sleep(1)  # Check every second to ensure ICMP is completed
+            # Run ICMP challenge first
+            self.logger.info("Starting ICMP Challenge...")
+            # Call the imported function directly, not as a method of self
+            icmp_success = start_icmp_server() # CORRECTED CALL
 
-            # Then initialize and run main server components
-            self.initialize()
-            self._handle_server_loop()
-            
-        except KeyboardInterrupt:
-            self.running = False
-            self.logger.info("Server shutdown requested")
-        finally:
-            self.cleanup()
+            if not icmp_success:
+                self.logger.error("ICMP Challenge failed or was not completed. Stopping server.")
+                return # Exit the run method if ICMP failed
 
-    def run_icmp_challenge(self) -> None:
-        """Run ICMP challenge to completion"""
-        self.logger.info("Starting ICMP Challenge phase...")
-        try:
-            # Run ICMP challenge in main thread
-            start_icmp_server()
-            self.icmp_completed = True
-            self.logger.info("ICMP Challenge completed successfully")
+            # If ICMP succeeded, proceed with TLS server
+            self.logger.info("ICMP Challenge completed successfully. Starting TLS Collaborator Server...")
+            self.initialize_collaborator_server()
+            self._handle_collaborator_connections()
+
         except Exception as e:
-            self.logger.error(f"Error in ICMP challenge: {e}")
-            raise
+            self.logger.error(f"Server run failed: {e}")
+            #traceback.print_exc()
+        finally:
+            self.cleanup() # Ensure cleanup is called when the loop exits or run finishes
 
-    def run_ca_challenge(self):
-        self.logger.info("Starting CA Challenge...")
-        ca_process = subprocess.Popen(["python", "server_challenges/ca_challenge.py"], cwd="communication/tls")
-        ca_process.wait()
-        self.logger.info("CA Challenge completed.")
-
-    # def prepare_for_client(self):
-    #     self.logger.info("Preparing to accept client with signed certificate...")
-        
-    #     # Load the server's SSL context with the necessary certificates and keys
-    #     self.context = create_server_ssl_context(ServerConfig.CERT, ServerConfig.KEY)
-        
-    #     # Bind the server socket to the appropriate IP and port
-    #     self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    #     self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    #     self.server_socket.bind((ServerConfig.IP, ServerConfig.PORT))
-    #     self.server_socket.listen(ProtocolConfig.MAX_CONNECTIONS)
-        
-    #     self.logger.info("Server ready to accept client connections.")
-        
-    def initialize(self) -> None:
-        """Initialize server components after ICMP challenge"""
-        self.logger.info("Initializing main server components...")
-        # Get session data
-        self.client_random, self.master_secret = self.image_challenge.extract_ssl_info()
-        
-        # Initialize SSL context and server socket
+    def initialize_collaborator_server(self) -> None:
+        """Initialize server to listen for collaborator connections."""
+        self.logger.info("Initializing server for collaborator connections...")
         self.context = create_server_ssl_context(ServerConfig.CERT, ServerConfig.KEY)
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.server_socket.bind((ServerConfig.IP, ServerConfig.PORT))
         self.server_socket.listen(ProtocolConfig.MAX_CONNECTIONS)
-        
-        # Start CA challenge
-        self.ca_challenge.initialize()
-        self.ca_challenge.run()
-        
-        self.logger.info(f"Server listening on {ServerConfig.IP}:{ServerConfig.PORT}...")
+        self.server_socket.setblocking(False)
+        self.logger.info(f"Listening for collaborator connections on {ServerConfig.IP}:{ServerConfig.PORT}")
 
-    def handle_client_request(self, client_socket: socket.socket, messages: List[str]) -> bool:
-        """Handle client connection after ICMP challenge completion"""
+    def handle_collaborator(self, ssl_socket: ssl.SSLSocket, addr: tuple) -> None:
+        """Handle communication with a connected collaborator using handle_ssl_request."""
+        addr_str = str(addr) # Use string representation for queue/listbox
         try:
-            try:
-                ssl_socket = self.context.wrap_socket(
-                    client_socket, 
-                    server_side=True,
-                    do_handshake_on_connect=False
-                )
-                ssl_socket.do_handshake()
-            except ssl.SSLError:
-                self.logger.info("SSL handshake failed - client likely missing certificate")
-                return False
+            self.logger.info(f"Handling collaborator connection from {addr_str}")
+            # Pass the message queue and address to handle_ssl_request
+            if handle_ssl_request(ssl_socket, [], client_message_queue=self.client_message_queue, addr=addr_str):
+                self.logger.info(f"Collaborator {addr_str} request handled successfully by handle_ssl_request.")
+            else:
+                self.logger.warning(f"handle_ssl_request failed for collaborator {addr_str}.")
 
-            # Read client request
-            request = ssl_socket.recv(1024).decode('utf-8')
-            self.logger.info(f"Received request: {request}")
-
-            # Check if the request is "Any body home?"
-            if "Any body home?" in request:
-                response = (
-                    b"HTTP/1.1 200 OK\r\n\r\n"
-                    b"Yes, I'm here!\r\n"
-                )
-                ssl_socket.sendall(response)
-                self.logger.info("Responded to 'Any body home?' with 'Yes, I'm here!'")
-                return True
-
-            return handle_ssl_request(ssl_socket, messages)
-
+        except ssl.SSLError as e:
+             self.logger.error(f"SSL error during communication with {addr_str}: {e}")
+        except socket.timeout:
+             self.logger.warning(f"Socket timeout during communication with {addr_str}.")
         except Exception as e:
-            self.logger.error(f"Error handling client: {e}")
-            return False
+            self.logger.error(f"Error handling collaborator {addr_str}: {e}")
+            #traceback.print_exc()
+        finally:
+            # Cleanup: Close the socket and notify GUI of disconnection
+            try:
+                ssl_socket.close()
+                # Remove from internal list if necessary
+                if ssl_socket in self.collaborator_sockets:
+                    self.collaborator_sockets.remove(ssl_socket)
+                # Notify GUI about disconnection
+                if self.client_update_queue:
+                    self.client_update_queue.put(('disconnect', addr_str))
+            except Exception as e:
+                self.logger.error(f"Error closing/removing socket for {addr_str}: {e}")
+            self.logger.info(f"Connection with collaborator {addr_str} closed.")
 
-    def _handle_server_loop(self) -> None:
-        """Main server loop handling client connections"""
+    def _handle_collaborator_connections(self) -> None:
+        """Accept and handle incoming collaborator connections."""
         encryption_key_printed = False
         start_time = time.time()
-            
+
         while self.running:
             ready, _, _ = select.select([self.server_socket], [], [], 0.1)
-            
-            # Handle client connections
+
             if ready:
                 client_socket, addr = self.server_socket.accept()
-                self.logger.info(f"Client connected from {addr}")
-                
+                addr_str = str(addr) # Use string representation
+                self.logger.info(f"Server: Collaborator connected from {addr_str}")
                 try:
-                    messages = self.image_challenge.get_encrypted_messages()
-                    if self.handle_client_request(client_socket, messages):
-                        self.logger.info("Client request handled successfully")
-                    else:
-                        self.logger.warning("Failed to handle client request")
-                finally:
+                    ssl_socket = self.context.wrap_socket(
+                        client_socket,
+                        server_side=True,
+                        do_handshake_on_connect=True
+                    )
+                    self.collaborator_sockets.append(ssl_socket) # Keep track if needed
+
+                    # Notify GUI about connection *before* starting thread
+                    if self.client_update_queue:
+                        self.client_update_queue.put(('connect', addr_str))
+
+                    # Start handler thread
+                    thread = threading.Thread(target=self.handle_collaborator, args=(ssl_socket, addr))
+                    self.collaborator_threads.append(thread)
+                    thread.daemon = True # Ensure threads exit when main program exits
+                    thread.start()
+
+                except ssl.SSLError as e:
+                    self.logger.error(f"SSL Handshake with {addr_str} failed: {e}")
                     client_socket.close()
-            
-            # Print encryption key after delay
+                    # Optionally notify GUI of failed connection attempt if needed
+                except Exception as e:
+                    self.logger.error(f"Error wrapping socket for {addr_str}: {e}")
+                    client_socket.close()
+                    # Optionally notify GUI of failed connection attempt if needed
+
+            # Print encryption key after delay (only once)
             if not encryption_key_printed and time.time() - start_time > 5:
                 self.image_challenge.print_encryption_key()
                 encryption_key_printed = True
 
+            # Basic cleanup of finished threads (optional, but good practice)
+            self.collaborator_threads = [t for t in self.collaborator_threads if t.is_alive()]
+
     def cleanup(self) -> None:
         """Cleanup resources on server shutdown"""
+        self.running = False
         if self.server_socket:
             self.server_socket.close()
+        for sock in self.collaborator_sockets:
+            try:
+                sock.close()
+            except Exception:
+                pass
+        for thread in self.collaborator_threads:
+            try:
+                thread.join(timeout=1)
+            except Exception:
+                pass
         self.logger.info("Server stopped")
 
-    
 
 def create_server_ssl_context(cert_content: str, key_content: str) -> ssl.SSLContext:
     """Create an SSL context for the server."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS)
     context.set_ciphers(SSLConfig.CIPHER_SUITE)
-    
+
     try:
         # Load the certificate and key into the context
         context = _temp_cert_to_context(context, cert_content, key_content)
-        
-        context.verify_mode = ssl.CERT_REQUIRED 
+
+        context.verify_mode = ssl.CERT_REQUIRED
         context.verify_flags = ssl.VERIFY_DEFAULT
         context.load_verify_locations(cafile=ServerConfig.CA_CERT_PATH)
-        
+
     except Exception as e:
         logging.error(f"Error setting up server SSL context: {e}")
         raise
-    
+
     return context

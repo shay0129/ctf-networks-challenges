@@ -1,3 +1,8 @@
+"""Ping the server with custom ICMP packets using Scapy
+This script sends ICMP Echo Request packets with incremental payload sizes to the server.
+It uses Scapy to create and send the packets, and logs the responses received from the server.
+The script is designed to work with a loopback interface (e.g., lo0) and can be run on various operating systems."""
+
 from scapy.interfaces import show_interfaces, dev_from_index
 from scapy.config import conf
 from scapy.sendrecv import sr1
@@ -35,7 +40,7 @@ def send_icmp_packets():
     """ Sends ICMP Echo Request packets with incremental payload sizes """
     sizes = [0, 100, 200, 300, 400]
     
-    logging.info(f"Using interface {conf.iface} for sending packets")
+    #logging.info(f"Using interface {conf.iface} for sending packets")
     
     for i, size in enumerate(sizes):
         data = b"A" * size

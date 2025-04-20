@@ -1,49 +1,8 @@
 """Client utilities."""
-from typing import Tuple
+from typing import Optional
 from socket import socket
-from OpenSSL import crypto
 import logging
-
-def create_csr(country: str, state: str, city: str, org_name: str, 
-               org_unit: str, domain_name: str) -> Tuple[bytes, bytes]:
-    """Create Certificate Signing Request."""
-    """
-    Create a Certificate Signing Request (CSR) and private key.
-
-    Args:
-        country: Country code (e.g., 'US')
-        state: State or province
-        city: City or locality
-        org_name: Organization name
-        org_unit: Organizational unit name
-        domain_name: Common name (domain name)
-
-    Returns:
-        Tuple containing CSR and private key in PEM format
-    """
-    private_key = crypto.PKey()
-    private_key.generate_key(crypto.TYPE_RSA, 4096)
-
-    csr = crypto.X509Req()
-    subject = csr.get_subject()
-    subject.C = country
-    subject.ST = state
-    subject.L = city
-    subject.O = org_name
-    subject.OU = org_unit
-    subject.CN = domain_name
-
-    csr.set_pubkey(private_key)
-    csr.sign(private_key, 'sha512')
-
-    csr_pem = crypto.dump_certificate_request(crypto.FILETYPE_PEM, csr)
-    private_key_pem = crypto.dump_privatekey(crypto.FILETYPE_PEM, private_key)
-
-    return csr_pem, private_key_pem
-    
-"""Proxy communication utilities."""
-import socket
-import logging
+import ssl
 
 def setup_proxy_connection(sock: socket, server_ip: str, server_port: int) -> None:
     """
@@ -82,3 +41,24 @@ def setup_proxy_connection(sock: socket, server_ip: str, server_port: int) -> No
         raise ConnectionError(f"Proxy connection failed: {response.decode()}")
     
     logging.info("Proxy tunnel established successfully")
+
+def create_client_ssl_context(use_proxy: bool = False) -> Optional[ssl.SSLContext]:
+    """Create an SSL context for the client."""
+    try:
+        if use_proxy:  # Use proxy for SSL connection (no certificate required)
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS)
+            context.verify_mode = ssl.CERT_NONE
+            context.check_hostname = False
+        else:  # Create basic context for CA communication
+            context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+            context.set_ciphers('AES128-SHA256')
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
+
+        return context
+    except Exception as e:
+        logging.error(f"Error creating SSL context: {e}")
+        return None
+
+def padding_csr(csr_len: int) -> bytes:
+    return f"\nPADDING_START_1234567890_CHECKSUM_{csr_len:05d}".encode()

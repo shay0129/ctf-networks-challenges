@@ -15,8 +15,9 @@ from .ca import (
     send_error_response
 )
 from .client import (
-    create_csr,
-    setup_proxy_connection
+    create_client_ssl_context,
+    setup_proxy_connection,
+    padding_csr
 )
 from .server import (
     cleanup,
@@ -41,8 +42,9 @@ __all__ = [
     'send_error_response',
 
     # Client
-    'create_csr',
+    'create_client_ssl_context',
     'setup_proxy_connection',
+    'padding_csr',
 
     # Server
     'cleanup',

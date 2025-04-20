@@ -1,10 +1,15 @@
+"""
+ICMP Challenge Module
+Handles ICMP-based challenges for the CTF server.
+"""
+import threading
 import logging
 import time
-import threading
-from scapy.sendrecv import sniff
-from scapy.config import conf
+
 from scapy.interfaces import show_interfaces, dev_from_index
 from scapy.layers.inet import IP, ICMP
+from scapy.sendrecv import sniff
+from scapy.config import conf
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -89,10 +94,9 @@ class ICMPChallenge:
 
 def start_icmp_server():
     """ Starts the ICMP listener """
-    print("bbHHh!")
-    
+    # logging.info("Starting ICMP server...")
     # Select interface to listen on - choose the first interface
-    interface = dev_from_index(1)  # Or by index (adjust based on show_interfaces output)
+    interface = dev_from_index(1)  # Based on show_interfaces output
     
     # Display the selected interface
     if interface:
@@ -100,6 +104,8 @@ def start_icmp_server():
     else:
         logging.info("Listening on all interfaces")
 
+    print("bbHHh!") # Hint to the user to send a ping with this payload
+    # Show available interfaces for reference
     challenge_handler = ICMPChallenge()
     
     # Define a more specific BPF filter to capture only ICMP echo requests with our specific ID
@@ -116,6 +122,13 @@ def start_icmp_server():
             iface=interface,
             stop_filter=lambda p: challenge_handler.completion_event.is_set()
         )
+        # If sniff finished because the event was set, return True
+        if challenge_handler.completion_event.is_set():
+            return True
+        else:
+            # Sniff might have stopped for other reasons (e.g., error not caught below)
+            logging.warning("Sniffing stopped but challenge completion event was not set.")
+            return False
 
     except KeyboardInterrupt:
         logging.info("Server stopped by user")

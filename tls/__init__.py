@@ -6,9 +6,9 @@ from .protocol import (
     CAConfig, ServerConfig, ProtocolConfig, 
     BurpConfig, ClientConfig
 )
-from .client import (
-    main as client_main
-)
+# from .client import (
+#     main as client_main
+# )
 from .ctf_server import (
     CTFServer
 )
@@ -22,7 +22,7 @@ __all__ = [
     'ClientConfig',
     
     # Client
-    'client_main',
+    # 'client_main',
     
     # Server
     'CTFServer',

@@ -2,17 +2,15 @@
 Server Communication Client Module
 Handles server communication using client certificates
 """
-import sys
-sys.path.append('C:\\my-CTF\\communication')
-
+from typing import Optional
 import traceback
 import logging
 import socket
 import ssl
-from typing import Optional
 import os
-from tls.protocol import ServerConfig, ProtocolConfig, BurpConfig, ClientConfig
-from tls.utils.client import setup_proxy_connection
+
+from .protocol import ServerConfig, ProtocolConfig, BurpConfig, ClientConfig
+from .utils.client import setup_proxy_connection
 
 def create_client_ssl_context() -> Optional[ssl.SSLContext]:
     """Create an SSL context for the client to communicate with server."""
@@ -28,9 +26,9 @@ def create_client_ssl_context() -> Optional[ssl.SSLContext]:
                 certfile=ClientConfig.CLIENT_CERT_PATH,
                 keyfile=ClientConfig.CLIENT_KEY_PATH
             )
-            logging.info("Client certificate and key loaded successfully")
+            logging.info("Loaded")
         except FileNotFoundError:
-            logging.error("Certificate files not found. Did you get them from the CA first?")
+            logging.error("Certificate files not found.")
             return None
         except Exception as e:
             logging.error(f"Error loading certificates: {e}")
@@ -66,7 +64,6 @@ class ServerClient:
 
     def handle_server_mode(self) -> None:
         """Handle server communication mode"""
-        logging.info("=== SERVER Mode - Communicating with Server ===")
         try:
             if not self.init_ssl_context():
                 logging.error("Failed to create SSL context")
@@ -75,7 +72,7 @@ class ServerClient:
             self.connect_and_communicate()
 
         except FileNotFoundError:
-            logging.error("No valid certificates found. Run the CA client first to obtain certificates.")
+            logging.error("No valid certificates found.")
         except Exception as e:
             logging.error(f"Error in SERVER mode: {e}")
             traceback.print_exc()
@@ -88,7 +85,6 @@ class ServerClient:
                 self._communicate_with_server()
         else:
             logging.error("Failed to establish secure connection to the server.")
-            logging.info("Hint: Try to check if the server responds to other types of requests...")
 
     def _establish_connection(self, host: str, port: int) -> Optional[ssl.SSLSocket]:
         """Establish connection to server"""
@@ -130,14 +126,30 @@ class ServerClient:
             logging.debug(f"Using cipher: {self.secure_sock.cipher()}")
             logging.debug(f"SSL version: {self.secure_sock.version()}")
 
+            # שלב 1: שלח בקשת GET ראשונית
             request = (
-                f"GET /resource HTTP/1.1\r\n"
+                f"G /resource HTTP/1.1\r\n" # need to fix G to GET
                 f"Host: {ServerConfig.HOSTNAME}\r\n"
                 f"\r\n"
             )
             self.secure_sock.sendall(request.encode())
-            logging.info("Request sent, awaiting response...")
+            logging.info("Initial request sent, awaiting response...")
 
+            # שלב 2: קבל את הודעת "What is your name?"
+            initial_response = self.secure_sock.recv(1024)
+            logging.info(f"Initial response: {initial_response.decode('utf-8', errors='ignore')}")
+
+
+            # שלב 3: שלח שם שמתחיל באות גדולה
+            name = "bad_name"  # שם שמתחיל באות גדולה
+            logging.info(f"Sending name: {name}")
+            self.secure_sock.sendall(name.encode())
+
+            # שלב 4: קבל את התגובה החוזרת (השרת שולח שוב את אותה הודעה)
+            repeated_response = self.secure_sock.recv(1024)
+            logging.info(f"Repeated prompt: {repeated_response.decode('utf-8', errors='ignore')}")
+
+            # שלב 5: כעת קבל את כל ההודעות המוצפנות
             response = self._receive_response()
             if response:
                 self._parse_multipart_response(response)

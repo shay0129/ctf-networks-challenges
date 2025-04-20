@@ -2,20 +2,21 @@
 Certificate Authority Server Utilities
 Provides functions for SSL certificate operations, CSR handling, and HTTP parsing.
 """
-
-from cryptography.hazmat.primitives.asymmetric import padding as asymmetric_padding
-from cryptography.hazmat.backends import default_backend
-from cryptography import x509
-from OpenSSL import crypto
 from typing import Tuple, Optional, Dict, Union, NamedTuple
 from socket import socket
-from urllib.parse import urlparse, parse_qs, urlencode
 import random
 import logging
 import ssl
 import time
 import traceback
-from tls.protocol import ProtocolConfig
+
+from urllib.parse import urlparse, parse_qs, urlencode
+from cryptography.hazmat.primitives.asymmetric import padding as asymmetric_padding
+from cryptography.hazmat.backends import default_backend
+from cryptography import x509
+from OpenSSL import crypto
+
+from ..protocol import ProtocolConfig
 
 class ParsedRequest(NamedTuple):
     """Structure for parsed HTTP request data"""
@@ -71,16 +72,7 @@ def sign_csr_with_ca(csr_pem: bytes, ca_key_pem: bytes, ca_cert_pem: bytes) -> O
         return None
 
 def download_file(file_name: str, content: Union[str, bytes]) -> bool:
-    """
-    Save content to file with error handling.
-
-    Args:
-        file_name: Target file path
-        content: Content to save (string or bytes)
-
-    Returns:
-        bool: True if successful, False otherwise
-    """
+    """ Save content to file with error handling. """
     try:
         with open(file_name, "wb") as f:
             if isinstance(content, str):
@@ -144,7 +136,7 @@ def parse_http_headers(raw_data: bytes) -> Tuple[Optional[Dict[bytes, bytes]], b
         
     except Exception as e:
         logging.error(f"Error parsing HTTP headers: {e}")
-        traceback.print_exc()
+        #traceback.print_exc()
         return None, b"", None
 
 def parse_http_request(data: bytes) -> Optional[ParsedRequest]:
@@ -204,7 +196,7 @@ def parse_http_request(data: bytes) -> Optional[ParsedRequest]:
         
     except Exception as e:
         logging.error(f"Error parsing HTTP request: {e}")
-        traceback.print_exc()
+        #traceback.print_exc()
         return None
 
 def format_response_with_query(status_line: bytes, response_data: Dict[str, str], 
@@ -334,7 +326,7 @@ def receive_all(sock: socket, expected_length: Optional[int] = None,
     
     return data
 
-def monitor_content_length(actual_size: int, declared_size: int, source: str, direction: str) -> None:
+def monitor_content_length(actual_size: int, declared_size: int, source: str, direction: str) -> bool:
     """
     Monitor and log content length differences.
     
@@ -343,6 +335,9 @@ def monitor_content_length(actual_size: int, declared_size: int, source: str, di
         declared_size: Declared Content-Length value
         source: Source identifier ('CLIENT' or 'SERVER')
         direction: Direction identifier ('SENT' or 'RECEIVED')
+        
+    Returns:
+        True if sizes match, False otherwise
     """
     logging.info(f"\n=== Content Length Monitor ===")
     logging.info(f"Source: {source}")
@@ -351,9 +346,11 @@ def monitor_content_length(actual_size: int, declared_size: int, source: str, di
     logging.info(f"Actual Size: {actual_size}")
     
     if actual_size != declared_size:
-        logging.warning(f"Size mismatch! Difference: {actual_size - declared_size} bytes")
+        #logging.warning(f"Size mismatch detected!")
+        return False
     else:
-        logging.info("Status: MATCH")
+        #logging.info("Status: MATCH")
+        return True
 
 def read_http_request(ssl_socket: ssl.SSLSocket) -> Tuple[Optional[Dict[bytes, bytes]], bytes]:
     """

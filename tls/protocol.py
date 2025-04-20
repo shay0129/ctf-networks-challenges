@@ -18,6 +18,8 @@ CA_CERT_PATH = os.path.join(CERTIFICATE_DIR, 'ca.crt')
 CLIENT_CERT_PATH = os.path.join(CERTIFICATE_DIR, 'client.crt')
 CLIENT_KEY_PATH = os.path.join(CERTIFICATE_DIR, 'client.key')
 
+SERVER_HOSTNAME: Final[str] = "Pasdaran.local"
+
 class SSLConfig:
     """SSL configuration settings."""
     ENCRYPTION_KEY: Final[bytes] = b"shay-ctf-2024"
@@ -53,8 +55,7 @@ class BurpConfig:
 
 class ClientConfig:
     """Client configuration settings."""
-    HOSTNAME: Final[str] = "Pasdaran.local"
-    HOSTNAME_REQUESTED: Final[str] = "ISRAEL"
+    SNI: Final[str] = SERVER_HOSTNAME # SNI hostname
     CLIENT_CERT_PATH = CLIENT_CERT_PATH
     CLIENT_KEY_PATH = CLIENT_KEY_PATH
 
@@ -62,7 +63,7 @@ class ServerConfig:
     """Server configuration settings."""
     IP: Final[str] = "127.0.0.1"
     PORT: Final[int] = 8444
-    HOSTNAME: Final[str] = "Pasdaran.local"
+    HOSTNAME: Final[str] = SERVER_HOSTNAME
     CA_CERT_PATH = CA_CERT_PATH
     CERT: Final[str] = """
 -----BEGIN CERTIFICATE-----
