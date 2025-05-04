@@ -10,7 +10,18 @@ import ssl
 import time
 
 from OpenSSL import crypto
+import warnings
+import re
 
+# --- Suppress the specific RuntimeWarning ---
+warnings.filterwarnings(
+    action='ignore',
+    # Pass the regex pattern as a raw string, not a compiled object
+    message=r".*'communication\.tls\.ca_client'.*found in sys\.modules.*",
+    category=RuntimeWarning
+    # Note: re.IGNORECASE is not directly used here, but the pattern is likely sufficient.
+)
+# --- End warning suppression ---
 from .protocol import CAConfig, ProtocolConfig, BurpConfig, ClientConfig
 from .utils.client import setup_proxy_connection, create_client_ssl_context, padding_csr
 from .utils.ca import download_file
@@ -91,7 +102,23 @@ class CAClient:
     def _handle_ca_communication(self, client_csr: bytes) -> None:
         """Handle communication with CA server"""
         if self._send_csr_request(client_csr):
-            time.sleep(2)
+            logging.info("Waiting for CA response...")
+            self.secure_sock.settimeout(ProtocolConfig.READ_TIMEOUT * 5)
+            
+            # Wait for the server to send a prompt for the name
+            prompt = self.secure_sock.recv(1024)
+            if b"Please enter your name:" in prompt:
+                # Ask the user for their name
+                print("Please enter your name: ", end='', flush=True)
+                user_name = input().strip()
+                # Validate the name (basic check)
+                if not re.match(r"^[a-zA-Z0-9_]+$", user_name):
+                    logging.error("Invalid name format. Only alphanumeric characters and underscores are allowed.")
+                    return
+                self.secure_sock.sendall(user_name.encode() + b"\n")
+                logging.info(f"Sent name: {user_name}")
+            
+            # המשך כרגיל
             if self._get_signed_certificate():
                 logging.info("Certificate obtained successfully")
 
@@ -107,10 +134,10 @@ class CAClient:
             ).encode() + csr + padding
 
             self.secure_sock.sendall(http_request)
-            logging.info("CSR sent successfully")
+            #logging.info("CSR sent successfully")
             return True
         except Exception as e:
-            logging.error(f"Error sending CSR request: {e}")
+            #logging.error(f"Error sending CSR request: {e}")
             return False
     
     def _get_signed_certificate(self) -> bool:
@@ -179,8 +206,8 @@ def main() -> None:
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    
-    use_proxy = input("Use Burp proxy? (y/n): ").lower().startswith('y')
+    print("Use Burp proxy? (y/n): ", flush=True)
+    use_proxy = input().lower().startswith('y')
     client = CAClient(use_proxy)
     client.handle_ca_mode()
 

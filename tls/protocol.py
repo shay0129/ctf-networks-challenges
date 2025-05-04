@@ -33,6 +33,7 @@ class ProtocolConfig:
     SOCKET_BUFFER_SIZE: Final[int] = 4096  # Socket buffer size, 4 KB
     MAX_BODY_SIZE: Final[int] = 1024 * 1024  # Maximum body size, 1 MB
     MAX_HEADER_SIZE: Final[int] = 8192  # Maximum header size, 8 KB
+    MAX_REQUEST_SIZE: Final[int] = 1024 * 1024  # Maximum request size, 1 MB
     
     # Timeouts
     TIMEOUT: Final[int] = 60  # General timeout
@@ -162,6 +163,8 @@ class CAConfig:
     ORG_NAME: Final[str] = "IRGC"
     ORG_UNIT: Final[str] = "Cybersecurity"
     HOSTNAME: Final[str] = "IRGC Root CA"
+    MAX_CERT_SIZE: Final[int] = 4096  # Maximum certificate size, 4 KB
+    CA_CERT_PATH = CA_CERT_PATH
     CERT: Final[str] = """
 -----BEGIN CERTIFICATE-----
 MIIFVjCCAz4CCQDZlfjV/jlm3jANBgkqhkiG9w0BAQ0FADBtMQswCQYDVQQGEwJJ

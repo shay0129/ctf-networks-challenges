@@ -236,9 +236,8 @@ def main() -> None:
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    logging.info("=== CTF Client ===")
-    logging.info("Initializing client...")
-    use_proxy = input("Use Burp proxy? (y/n): ").lower().startswith('y')
+    print("Use Burp proxy? (y/n): ", flush=True)
+    use_proxy = input().lower().startswith('y')
     client = CTFClient(use_proxy)
 
     client.handle_server_mode()

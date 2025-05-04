@@ -254,15 +254,6 @@ def handle_ssl_request(
             except Exception as e:
                 logging.error(f"Failed to put client name to queue for {addr}: {e}")
 
-        # Validate name (optional, can be done in verify_client_cert or here)
-        # Example validation:
-        if not client_name_response or not client_name_response[0].isupper():
-             logging.warning(f"Invalid name format received from {addr}: {client_name_response}")
-             # Decide if this is a fatal error or just a warning
-             # response = b"HTTP/1.1 400 Bad Request\r\n\r\nInvalid name format.\n"
-             # ssl_socket.sendall(response)
-             # return False # Uncomment if invalid name should terminate
-
         # Send confirmation response
         confirmation_response = (
             b"HTTP/1.1 200 OK\r\n\r\n"
