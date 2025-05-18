@@ -107,8 +107,8 @@ class CTFGui:
     def create_widgets(self):
         """# --- Main Window Configuration ---"""
         self.root.configure(bg="#2E2E2E")
-        self.root.iconbitmap("communication/tls/drone.ico")       # Set the icon for the window
-        self.root.resizable(False, False)       # Disable resizing
+        self.root.iconbitmap("communication/tls/drone.ico")          # Set the icon for the window
+        self.root.resizable(False, False)            # Disable resizing
         # --- Bind window close ('X') button to _on_closing method ---
         self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
 
@@ -223,62 +223,47 @@ class CTFGui:
         # Placeholder for any additional setup or checks
         pass
 
-    def stop_server(self, log_stopping=True): # Added optional logging control
+    def stop_server(self, log_stopping=True):
         # Check if thread exists AND is alive before trying to stop
         if self.server_thread and self.server_thread.is_alive():
             try:
                 if log_stopping:
                     logging.info("Attempting to terminate Drone Core...")
-                self.server.running = False # Signal the server thread to stop
-                self.server_thread.join(timeout=1) # Shorter timeout for closing
+                    
+                # עצירת השרת תחילה
+                self.server.running = False  # Signal the server thread to stop
+                self.server_thread.join(timeout=1)  # Shorter timeout for closing
 
-                if self.server_thread.is_alive():
-                    if log_stopping:
-                        logging.warning("Drone Core thread did not stop gracefully.")
-                elif log_stopping:
-                    logging.info("Drone Core terminated.")
-
+                # כעת ניקוי הלוגים לאחר כל ההודעות
+                self._clear_all_logs()
+                
+                # עדכון סטטוס הכפתורים וסיום
+                self.start_server_button.config(state=tk.NORMAL)
+                self.stop_server_button.config(state=tk.DISABLED)
+                self.server_thread = None  # Reset thread variable
+                
             except Exception as e:
                 if log_stopping:
                     logging.error(f"Error stopping server: {e}")
-            finally:
-                # Always update button states and reset thread variable after attempt
+                    
+                # ניקוי הלוגים גם במקרה של שגיאה
+                self._clear_all_logs()
+                
+                # עדכון סטטוס הכפתורים תמיד
                 self.start_server_button.config(state=tk.NORMAL)
                 self.stop_server_button.config(state=tk.DISABLED)
-                self.server_thread = None # Reset thread variable
-
-                # --- CODE TO CLEAR SERVER LOG WIDGET ---
-                try:
-                    self.server_log_text.configure(state='normal')
-                    self.server_log_text.delete('1.0', tk.END)
-                    self.server_log_text.configure(state='disabled')
-                    if log_stopping:
-                        logging.info("Server log cleared.")
-                except tk.TclError:
-                    pass # Ignore if widget is destroyed
-                except Exception as e:
-                    logging.error(f"Error clearing server log: {e}")
-                # --- END OF CLEARING CODE ---
-
+                self.server_thread = None
         else:
             if log_stopping:
                 logging.warning("Drone Core (Server) is not running or already stopped.")
-            # Ensure buttons reflect the stopped state even if called again
+            
+            # עדכון סטטוס הכפתורים
             self.start_server_button.config(state=tk.NORMAL)
             self.stop_server_button.config(state=tk.DISABLED)
-            self.server_thread = None # Ensure reset
-
-            # --- CLEAR LOG IF STOP IS CALLED WHEN ALREADY STOPPED ---
-            try:
-                self.server_log_text.configure(state='normal')
-                self.server_log_text.delete('1.0', tk.END)
-                self.server_log_text.configure(state='disabled')
-                # No log message here as it might be redundant if already stopped
-            except tk.TclError:
-                pass # Ignore if widget is destroyed
-            except Exception as e:
-                logging.error(f"Error clearing server log (when already stopped): {e}")
-            # --- END OF CLEARING CODE ---
+            self.server_thread = None
+            
+            # ניקוי הלוגים גם במקרה שהשרת כבר לא פעיל
+            self._clear_all_logs()
 
     def _start_ca_process(self):
         # Check if process exists AND is running (poll() is None means running)
@@ -454,7 +439,7 @@ class CTFGui:
             self.client_input.delete(0, tk.END)
             logging.info(f"Sent command: '{command}' to client process.")
         elif not self.client_process or self.client_process.poll() is not None:
-            logging.warning("No active client process to send command to.")
+            logging.warning("No active client process tosend command to.")
         else:
             logging.error("Client process stdin is not available.")
 
@@ -529,14 +514,35 @@ class CTFGui:
         finally:
             self.root.after(100, self._process_queues) # Schedule the next check
 
+    def _clear_all_logs(self):
+        """Clear all log displays"""
+        try:
+            # Clear server log
+            self.server_log_text.configure(state='normal')
+            self.server_log_text.delete('1.0', tk.END)
+            self.server_log_text.configure(state='disabled')
+            
+            # Clear client output
+            self._clear_client_output_display()
+            
+            # Reset output lines dictionary to prevent old data from appearing
+            for key in list(self.output_lines.keys()):
+                self.output_lines[key] = ""
+            
+            logging.debug("All logs cleared")
+        except tk.TclError:
+            pass # Ignore if widgets are destroyed
+        except Exception as e:
+            logging.error(f"Error clearing logs: {e}")
+    
     def _clear_client_output_display(self):
-        """Clears the client output text widget."""
+        """Clear the client output text widget."""
         try:
             self.client_output_text.configure(state='normal')
-            self.client_output_text.delete(1.0, tk.END)
+            self.client_output_text.delete('1.0', tk.END)
             self.client_output_text.configure(state='disabled')
         except tk.TclError:
-            pass # Ignore if widget is destroyed
+            pass  # Ignore if the widget has been destroyed
 
     def _on_closing(self):
         """Handles the event when the user clicks the 'X' button."""
@@ -587,3 +593,4 @@ if __name__ == "__main__":
     root = tk.Tk()
     gui = CTFGui(root)
     root.mainloop()
+    # Clean up on exit

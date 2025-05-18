@@ -4,6 +4,8 @@ from socket import socket
 import logging
 import ssl
 
+from ..protocol import PADDING_MARKER
+
 def setup_proxy_connection(sock: socket, server_ip: str, server_port: int) -> None:
     """
     Setup proxy tunnel connection with error handling.
@@ -61,4 +63,4 @@ def create_client_ssl_context(use_proxy: bool = False) -> Optional[ssl.SSLContex
         return None
 
 def padding_csr(csr_len: int) -> bytes:
-    return f"\nPADDING_START_1234567890_CHECKSUM_{csr_len:05d}".encode()
+    return f"\n{PADDING_MARKER}{csr_len:05d}".encode()

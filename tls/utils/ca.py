@@ -3,7 +3,7 @@ Certificate Authority Server Utilities
 Provides functions for SSL certificate operations, CSR handling, and HTTP parsing.
 """
 from typing import Tuple, Optional, Dict, Union, NamedTuple
-from socket import socket
+from socket import socket, timeout as socket_timeout
 import random
 import logging
 import ssl
@@ -16,10 +16,7 @@ from cryptography.hazmat.backends import default_backend
 from cryptography import x509
 from OpenSSL import crypto
 
-from ..protocol import ProtocolConfig
-
-PADDING_MARKER = b"PADDING_START_1234567890_CHECKSUM_"
-
+from ..protocol import ProtocolConfig, PADDING_MARKER
 
 class ParsedRequest(NamedTuple):
     """Structure for parsed HTTP request data"""
@@ -71,7 +68,7 @@ def sign_csr_with_ca(csr_pem: bytes, ca_key_pem: bytes, ca_cert_pem: bytes) -> O
         return crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
 
     except Exception as e:
-        logging.error(f"Error signing CSR: {e}")
+        # logging.error(f"Error signing CSR: {e}")
         return None
 
 def download_file(file_name: str, content: Union[str, bytes]) -> bool:
@@ -85,7 +82,7 @@ def download_file(file_name: str, content: Union[str, bytes]) -> bool:
         #logging.info(f"File saved to {file_name}")
         return True
     except (IOError, OSError) as e:
-        #logging.error(f"Error saving file {file_name}: {e}")
+        ## logging.error(f"Error saving file {file_name}: {e}")
         return False
 
 def parse_http_headers(raw_data: bytes) -> Tuple[Optional[Dict[bytes, bytes]], bytes, Optional[int]]:
@@ -138,7 +135,7 @@ def parse_http_headers(raw_data: bytes) -> Tuple[Optional[Dict[bytes, bytes]], b
         return headers, body, content_length
         
     except Exception as e:
-        logging.error(f"Error parsing HTTP headers: {e}")
+        # logging.error(f"Error parsing HTTP headers: {e}")
         #traceback.print_exc()
         return None, b"", None
 
@@ -154,7 +151,7 @@ def parse_http_request(data: bytes) -> Optional[ParsedRequest]:
     """
     try:
         if len(data) > ProtocolConfig.MAX_REQUEST_SIZE:
-            logging.error(f"Request size {len(data)} exceeds maximum {ProtocolConfig.MAX_REQUEST_SIZE}")
+            # logging.error(f"Request size {len(data)} exceeds maximum {ProtocolConfig.MAX_REQUEST_SIZE}")
             return None
 
         headers_raw, body = data.split(b'\r\n\r\n', 1)
@@ -198,7 +195,7 @@ def parse_http_request(data: bytes) -> Optional[ParsedRequest]:
         )
         
     except Exception as e:
-        logging.error(f"Error parsing HTTP request: {e}")
+        # logging.error(f"Error parsing HTTP request: {e}")
         #traceback.print_exc()
         return None
 
@@ -241,18 +238,18 @@ def verify_client_csr(csr_data: bytes, client_socket: ssl.SSLSocket) -> Optional
     """ Verify CSR signature and format. """
     try:
         if not csr_data.startswith(b"-----BEGIN CERTIFICATE REQUEST-----"):
-            logging.error("Invalid CSR format - missing begin marker")
+            # logging.error("Invalid CSR format - missing begin marker")
             return None
             
         # Load and verify CSR
         try:
             csr_obj = crypto.load_certificate_request(crypto.FILETYPE_PEM, csr_data)
             if not csr_obj:
-                logging.error("Failed to load CSR - null object returned")
+                # logging.error("Failed to load CSR - null object returned")
                 send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Invalid CSR")
                 return None
         except Exception as cert_error:
-            logging.error(f"Exception loading CSR: {cert_error}")
+            # logging.error(f"Exception loading CSR: {cert_error}")
             send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Error parsing CSR")
             return None
         
@@ -260,44 +257,51 @@ def verify_client_csr(csr_data: bytes, client_socket: ssl.SSLSocket) -> Optional
         try:
             org_name = csr_obj.get_subject().O
             if not org_name:
-                logging.error("Missing organization name in CSR")
+                # logging.error("Missing organization name in CSR")
                 send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Missing organization name in CSR")
                 return None
                 
             if org_name != "Sharif University of Technology":
-                logging.error(f"Invalid organization in CSR: '{org_name}'")
+                # logging.error(f"Invalid organization in CSR: '{org_name}'")
                 send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Invalid organization in CSR")
                 return None
                 
             logging.debug(f"Organization verified: {org_name}")
         except Exception as e:
-            logging.error(f"Error checking organization name: {e}")
+            # logging.error(f"Error checking organization name: {e}")
             send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Error validating CSR organization")
             return None
         
-        # Get the CN from CSR before asking for the name
+        # Get the CN from CSR - we'll use it as the user name
         try:
             common_name = csr_obj.get_subject().CN
             if not common_name:
-                logging.error("Missing Common Name (CN) in CSR")
+                # logging.error("Missing Common Name (CN) in CSR")
                 send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Missing Common Name in CSR")
                 return None
-            logging.debug(f"Found CN in CSR: {common_name}")
-        except Exception as e:
-            logging.error(f"Error getting CN from CSR: {e}")
-            send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Error extracting Common Name from CSR")
-            return None
+                
+            # שליחת הודעה מותאמת אישית עם שם המשתמש
+            greeting_msg = f"Hello {common_name}, your CSR is valid! Proceeding to next step...".encode('utf-8')
+            response_headers = [
+                b"HTTP/1.1 200 OK",
+                b"Content-Type: text/plain",
+                b"Content-Length: " + str(len(greeting_msg)).encode('utf-8'),
+                b"Connection: keep-alive",
+                b"",
+                b""
+            ]
+            client_socket.sendall(b"\r\n".join(response_headers) + greeting_msg)
             
-        # Skip asking client for name - use CN directly from CSR
-        # This simplifies the flow and avoids HTTP protocol issues
-        logging.info(f"Using CN from CSR directly: {common_name}")
-        
-        # Return the CSR object and CN
-        logging.info("CSR verification successful")
-        return csr_obj, common_name
+            logging.info(f"Using CN as name: {common_name}")
+            return csr_obj, common_name
+            
+        except Exception as e:
+            # logging.error(f"Error processing CN from CSR: {e}")
+            send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Error processing certificate information")
+            return None
         
     except Exception as e:
-        logging.error(f"CSR verification failed: {e}")
+        # logging.error(f"CSR verification failed: {e}")
         return None
 
 def read_client_name_response(client_socket: ssl.SSLSocket, timeout: int = 10) -> Optional[str]:
@@ -330,7 +334,7 @@ def read_client_name_response(client_socket: ssl.SSLSocket, timeout: int = 10) -
                 if b'\n' in request_data:
                     # Assume it's just a simple name entry
                     return request_data.strip().decode('utf-8')
-            except socket.timeout:
+            except socket_timeout:
                 break
         
         return None
@@ -375,7 +379,7 @@ def _extract_csr(ssl_socket: ssl.SSLSocket, headers: dict, initial_body: bytes) 
             send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid Content-Length")
             return False, None
         except Exception as e:
-            logging.error(f"Error extracting CSR: {str(e)}")
+            # logging.error(f"Error extracting CSR: {str(e)}")
             send_error_response(ssl_socket, b"HTTP/1.1 500 Internal Server Error", b"Internal server error during CSR extraction")
             return False, (None, None)
 
@@ -422,7 +426,7 @@ def receive_all(sock: socket, expected_length: Optional[int] = None,
             data += chunk
             if expected_length and len(data) >= expected_length:
                 break
-        except socket.timeout:
+        except socket_timeout:
             break
     
     return data

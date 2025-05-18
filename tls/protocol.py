@@ -20,6 +20,8 @@ CLIENT_KEY_PATH = os.path.join(CERTIFICATE_DIR, 'client.key')
 
 SERVER_HOSTNAME: Final[str] = "Pasdaran.local"
 
+PADDING_MARKER = b"PADDING_1234567890_CHECKSUM_"
+
 class SSLConfig:
     """SSL configuration settings."""
     ENCRYPTION_KEY: Final[bytes] = b"shay-ctf-2024"
