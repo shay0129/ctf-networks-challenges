@@ -367,12 +367,16 @@ def _extract_csr(ssl_socket: ssl.SSLSocket, headers: dict, initial_body: bytes) 
             
             # Extract the embedded length
             try:
-                embedded_length = int(checksum_part.decode('utf-8').strip())
+                # Clean non-numeric characters before parsing
+                checksum_text = checksum_part.decode('utf-8').strip()
+                # Remove any non-digit characters
+                cleaned_checksum = ''.join(c for c in checksum_text if c.isdigit())
+                embedded_length = int(cleaned_checksum)
                 return True, (csr_part, embedded_length)
             except ValueError:
                 logging.warning(f"Could not parse embedded length from: {checksum_part!r}")
                 send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid CSR format: checksum not a number")
-                return False, (None, None)
+                return False, None
                 
         except ValueError:
             logging.warning("Invalid Content-Length header")

@@ -74,29 +74,41 @@ class CAClient:
             return None
     
     def _generate_csr(self) -> Tuple[bytes, bytes]:
-        """Generate CSR and client key"""
+        """Generate CSR and client key using the cryptography library"""
         logging.info("Generating CSR...")
-
-        # Generate private key and CSR
-        # Note: In a real-world scenario, you would use a secure method to generate and store the private key.
-        private_key = crypto.PKey()
-        private_key.generate_key(crypto.TYPE_RSA, 4096)
-
-        csr = crypto.X509Req()
-        subject = csr.get_subject()
-        subject.C = "IR" # Country Name
-        subject.ST = "Tehran" # State or Province Name
-        subject.L = "Tehran" ## Locality Name
-        subject.O = "None" # Organization Name, have to be 'Sharif University of Technology'
-        subject.OU = "Cybersecurity Department" # Organizational Unit Name
-        subject.CN = "None" # Common Name/Domain Name, have to be Client Name
         
-        csr.set_pubkey(private_key)
-        csr.sign(private_key, 'sha512')
-
-        csr_pem = crypto.dump_certificate_request(crypto.FILETYPE_PEM, csr) # Convert CSR to PEM format
-        private_key_pem = crypto.dump_privatekey(crypto.FILETYPE_PEM, private_key) # Convert private key to PEM format
-
+        # Import needed cryptography modules
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization, hashes
+        from cryptography.x509.oid import NameOID
+        from cryptography import x509
+        
+        # Generate private key
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=4096,
+        )
+        
+        # Save private key in PEM format
+        private_key_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption()
+        )
+        
+        # Create CSR
+        csr = x509.CertificateSigningRequestBuilder().subject_name(x509.Name([
+            x509.NameAttribute(NameOID.COUNTRY_NAME, "IR"),
+            x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tehran"),
+            x509.NameAttribute(NameOID.LOCALITY_NAME, "Tehran"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, "None"),  # Should be 'Sharif University of Technology'
+            x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Cybersecurity Department"),
+            x509.NameAttribute(NameOID.COMMON_NAME, "None"),  # Should be client name
+        ])).sign(private_key, hashes.SHA512())
+        
+        # Convert CSR to PEM format
+        csr_pem = csr.public_bytes(serialization.Encoding.PEM)
+        
         return csr_pem, private_key_pem
 
     def _handle_ca_communication(self, client_csr: bytes) -> None:
@@ -118,7 +130,6 @@ class CAClient:
                 self.secure_sock.sendall(user_name.encode() + b"\n")
                 logging.info(f"Sent name: {user_name}")
             
-            # המשך כרגיל
             if self._get_signed_certificate():
                 logging.info("Certificate obtained successfully")
 
