@@ -7,7 +7,6 @@ import traceback
 import logging
 import socket
 import ssl
-import os
 
 from .protocol import ServerConfig, ProtocolConfig, BurpConfig, ClientConfig
 from .utils.client import setup_proxy_connection
@@ -92,12 +91,12 @@ class ServerClient:
             if self.use_proxy:
                 sock = socket.create_connection((BurpConfig.IP, BurpConfig.PORT))
                 setup_proxy_connection(sock, host, port)
-                secure_sock = self.context.wrap_socket(sock)
+                secure_sock = self.context.wrap_socket(sock)  # type: ignore[attr-defined]
                 logging.info(f"Connected to Burp Proxy, forwarding to {host}:{port}...")
             else:
                 sock = socket.create_connection((host, port))
                 sock.settimeout(ProtocolConfig.TIMEOUT)
-                secure_sock = self.context.wrap_socket(sock, server_hostname=host)
+                secure_sock = self.context.wrap_socket(sock, server_hostname=host)  # type: ignore[attr-defined]
                 logging.info(f"Connecting to {host}:{port}...")
 
             logging.info(f"SSL handshake successful with {secure_sock.getpeername()}")
@@ -110,43 +109,31 @@ class ServerClient:
     def _communicate_with_server(self) -> None:
         """Communicate with server after establishing connection"""
         try:
-            if not os.path.exists(ClientConfig.CLIENT_CERT_PATH):
-                request = "Any body home?"
-                self.secure_sock.sendall(request.encode())
-                logging.info("Sent: Any body home?")
+            logging.info(f"Handshake successful with {self.secure_sock.getpeername()}")  # type: ignore[attr-defined]
+            logging.debug(f"Using cipher: {self.secure_sock.cipher()}")  # type: ignore[attr-defined]
+            logging.debug(f"SSL version: {self.secure_sock.version()}")  # type: ignore[attr-defined]
 
-                response = self.secure_sock.recv(1024).decode('utf-8')
-                logging.info(f"Received: {response}")
-                
-                if response == "Yes, I'm here!":
-                    logging.info("Server is alive! Try to reach it another way...")
-                return
-
-            logging.info(f"Handshake successful with {self.secure_sock.getpeername()}")
-            logging.debug(f"Using cipher: {self.secure_sock.cipher()}")
-            logging.debug(f"SSL version: {self.secure_sock.version()}")
-
-            # שלב 1: שלח בקשת GET ראשונית
+            # Step 1: Send initial request
+            logging.info("Sending initial request to server...")
             request = (
-                f"G /resource HTTP/1.1\r\n" # need to fix G to GET
+                f"G /resource HTTP/1.1\r\n" # participent needs to fix G to GET
                 f"Host: {ServerConfig.HOSTNAME}\r\n"
                 f"\r\n"
             )
-            self.secure_sock.sendall(request.encode())
+            self.secure_sock.sendall(request.encode())  # type: ignore[attr-defined]
             logging.info("Initial request sent, awaiting response...")
 
             # שלב 2: קבל את הודעת "What is your name?"
-            initial_response = self.secure_sock.recv(1024)
+            initial_response = self.secure_sock.recv(1024)  # type: ignore[attr-defined]
             logging.info(f"Initial response: {initial_response.decode('utf-8', errors='ignore')}")
 
-
             # שלב 3: שלח שם שמתחיל באות גדולה
-            name = "bad_name"  # שם שמתחיל באות גדולה
+            name = "BadName"  # שם שמתחיל באות גדולה
             logging.info(f"Sending name: {name}")
-            self.secure_sock.sendall(name.encode())
+            self.secure_sock.sendall(name.encode())  # type: ignore[attr-defined]
 
             # שלב 4: קבל את התגובה החוזרת (השרת שולח שוב את אותה הודעה)
-            repeated_response = self.secure_sock.recv(1024)
+            repeated_response = self.secure_sock.recv(1024)  # type: ignore[attr-defined]
             logging.info(f"Repeated prompt: {repeated_response.decode('utf-8', errors='ignore')}")
 
             # שלב 5: כעת קבל את כל ההודעות המוצפנות
@@ -165,7 +152,9 @@ class ServerClient:
         
         while self.running:
             try:
-                chunk = self.secure_sock.recv(1024)
+                if not self.secure_sock:
+                    break
+                chunk = self.secure_sock.recv(1024)  # type: ignore[attr-defined]
                 if not chunk:
                     break
                 response += chunk
@@ -214,7 +203,7 @@ def main() -> None:
     """Main function handling server communication"""
     logging.basicConfig(
         level=logging.INFO,
-        format='%(asctime)s - %(levellevel)s - %(message)s'
+        format='%(asctime)s - %(levelname)s - %(message)s'
     )
     
     use_proxy = input("Use Burp proxy? (y/n): ").lower().startswith('y')

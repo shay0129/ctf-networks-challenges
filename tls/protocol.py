@@ -47,7 +47,6 @@ class ProtocolConfig:
     BOUNDARY: Final[str] = 'boundary'  # Multipart boundary
     
     # Request limits
-    MAX_REQUEST_SIZE: Final[int] = 1024 * 1024  # Maximum total request size, 1 MB
     MAX_CSR_SIZE: Final[int] = 16384  # Maximum CSR size, 16 KB
 
 class BurpConfig:

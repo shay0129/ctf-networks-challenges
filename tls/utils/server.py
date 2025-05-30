@@ -2,9 +2,7 @@
 Server Utilities Module
 Provides SSL, encryption, and file handling utilities for the server.
 """
-from typing import Optional, Union, List
-import traceback
-import tempfile
+from typing import Optional, List, Any
 import logging
 import socket
 import atexit
@@ -17,7 +15,7 @@ from cryptography.hazmat.primitives.asymmetric import padding as asymmetric_padd
 from cryptography.hazmat.backends import default_backend
 from cryptography import x509
 
-from ..protocol import ProtocolConfig, ClientConfig, ServerConfig
+from ..protocol import ProtocolConfig, ServerConfig
 from ..server_challenges.enigma_challenge import EnigmaChallenge
 
 # Setup utilities
@@ -28,14 +26,14 @@ def setup_logging() -> None:
        format='%(asctime)s - %(levelname)s - %(message)s'
    )
 
-def setup_signal_handlers(server) -> None:
+def setup_signal_handlers(server: Any) -> None:
    """
    Setup graceful shutdown handlers for SIGINT and SIGTERM.
    
    Args:
        server: CTFServer instance to handle shutdown
    """
-   def signal_handler(sig: int, frame) -> None:
+   def signal_handler(sig: int, frame: Any) -> None:
        logging.info("\nShutting down server...")
        server.running = False
 
@@ -58,82 +56,80 @@ def cleanup(image_path: str) -> None:
        logging.error(f"Failed to cleanup temporary file: {e}")
 
 # Certificate operations
-def verify_client_cert(cert: bytes, ssl_socket: ssl.SSLSocket) -> bool:
-   """
-   Verify client certificate against CA and check Common Name.
-   """
-   client_name = input("Enter your name: ").strip()
-   if not client_name:
-       logging.error("No name provided")
-       return False
-   if not client_name[0].isupper():
-       logging.error("Name must start with an uppercase letter")
-       return False
-   if not client_name.isalpha():
-       logging.error("Name must contain only alphabetic characters")
-       return False
-   if len(client_name) > ProtocolConfig.MAX_NAME_LENGTH:
-       logging.error(f"Name exceeds maximum length of {ProtocolConfig.MAX_NAME_LENGTH} characters")
-       return False
-   if not client_name.isascii():
-       logging.error("Name must contain only ASCII characters")
-       return False
-   if not client_name.isalnum():
-       logging.error("Name must contain only alphanumeric characters")
-       return False
+def verify_client_cert(cert: bytes) -> bool:
+    """
+    Verify client certificate is signed by CA and contains required fields.
+    """
+    if not cert:
+        logging.error("No certificate provided")
+        return False
+    try:
+        cert_obj = x509.load_der_x509_certificate(cert, default_backend())
+        logging.info(f"Certificate subject: {cert_obj.subject}")
+        logging.info(f"Certificate issuer: {cert_obj.issuer}")
 
-   if not cert:
-       logging.error("No certificate provided")
-       return False
+        # Check Common Name (CN) and Organization (O)
+        common_name = None
+        organization = None
+        for attr in cert_obj.subject:
+            if attr.oid == x509.NameOID.COMMON_NAME:
+                common_name = attr.value
+            if attr.oid == x509.NameOID.ORGANIZATION_NAME:
+                organization = attr.value
+        if not common_name:
+            logging.error("Common Name (CN) not found in certificate subject")
+            return False
+        if not organization:
+            logging.error("Organization (O) not found in certificate subject")
+            return False
+        if organization != "Sharif University of Technology":
+            logging.error(f"Invalid Organization: {organization}")
+            return False
+        logging.info(f"Valid Organization: {organization}")
+        logging.info(f"Valid Common Name: {common_name}")
 
-   try:
-       cert_obj = x509.load_der_x509_certificate(cert, default_backend())
-       logging.info(f"Certificate subject: {cert_obj.subject}")
-       logging.info(f"Certificate issuer: {cert_obj.issuer}")
-
-       
-       for attr in cert_obj.subject:
-           # Verify Common Name against, expected client name
-           if attr.oid == x509.NameOID.COMMON_NAME:
-               if attr.value != client_name: 
-                   logging.error(f"Invalid Common Name: {attr.value}")
-                   return False
-               else:
-                   logging.info(f"Valid Common Name: {attr.value}")
-                   break
-            # # Verify Organization Name against expected 
-            # if attr.on == x509.NameOID.ORGANIZATION_NAME:
-            #     logging.info(f"Organization Name: {attr.value}")
-            #     break
-
-       # Load and verify against CA public key
-       try:
-           with open(ServerConfig.CA_CERT_PATH, "rb") as ca_file:
-               ca_cert = x509.load_pem_x509_certificate(ca_file.read(), default_backend())
-               ca_public_key = ca_cert.public_key()
-       except FileNotFoundError:
-           logging.error(f"CA certificate not found at {ServerConfig.CA_CERT_PATH}")
-           return False
-       except Exception as e:
-           logging.error(f"Error loading CA certificate: {e}")
-           return False
-       
-       try:
-           ca_public_key.verify(
-               cert_obj.signature,
-               cert_obj.tbs_certificate_bytes,
-               asymmetric_padding.PKCS1v15(),
-               cert_obj.signature_hash_algorithm,
-           )
-           logging.info("Certificate successfully verified against CA public key")
-           return True
-       except Exception as e:
-           logging.error(f"Certificate verification failed: {e}")
-           return False
-
-   except Exception as e:
-       logging.error(f"Error processing certificate: {e}")
-       return False
+        # Load and verify against CA public key
+        try:
+            with open(ServerConfig.CA_CERT_PATH, "rb") as ca_file:
+                ca_cert = x509.load_pem_x509_certificate(ca_file.read(), default_backend())
+                ca_public_key = ca_cert.public_key()
+        except FileNotFoundError:
+            logging.error(f"CA certificate not found at {ServerConfig.CA_CERT_PATH}")
+            return False
+        except Exception as e:
+            logging.error(f"Error loading CA certificate: {e}")
+            return False
+        # Only verify if the CA public key supports it (RSA/ECDSA)
+        try:
+            from cryptography.hazmat.primitives.asymmetric import rsa, ec
+            hash_algo = cert_obj.signature_hash_algorithm
+            if hash_algo is None:
+                logging.error("Certificate missing signature hash algorithm.")
+                return False
+            if isinstance(ca_public_key, rsa.RSAPublicKey):
+                ca_public_key.verify(
+                    cert_obj.signature,
+                    cert_obj.tbs_certificate_bytes,
+                    asymmetric_padding.PKCS1v15(),
+                    hash_algo
+                )
+            elif isinstance(ca_public_key, ec.EllipticCurvePublicKey):
+                ca_public_key.verify(
+                    cert_obj.signature,
+                    cert_obj.tbs_certificate_bytes,
+                    ec.ECDSA(hash_algo)
+                )
+            else:
+                logging.error("CA public key type not supported for verification.")
+                return False
+            logging.info("Certificate successfully verified against CA public key")
+            return True
+        except Exception as e:
+            logging.error(f"Certificate verification failed: {e}")
+            return False
+    except Exception as e:
+        logging.error(f"Error processing certificate: {e}")
+        return False
 
 # Response formatting
 def create_multipart_response(messages: List[str]) -> bytes:
@@ -165,37 +161,7 @@ def create_multipart_response(messages: List[str]) -> bytes:
    response += b"--boundary--\r\n\r\n"
    return response
 
-def _temp_cert_to_context(context: ssl.SSLContext, cert_content: Union[str, bytes], key_content: Optional[Union[str, bytes]] = None) -> ssl.SSLContext:
-    """Create temporary files to store the certificate and key, and load them into the SSL context."""
-    cert_path = key_path = None
-    try:
-        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as temp_cert:
-            if isinstance(cert_content, str):
-                temp_cert.write(cert_content.encode())
-            else:
-                temp_cert.write(cert_content)
-            cert_path = temp_cert.name
-            
-        if key_content:
-            with tempfile.NamedTemporaryFile(mode='wb', delete=False) as temp_key:
-                if isinstance(key_content, str):
-                    temp_key.write(key_content.encode())
-                else:
-                    temp_key.write(key_content)
-                key_path = temp_key.name
-        
-        # Load the certificate and key into the context
-        context.load_cert_chain(certfile=cert_path, keyfile=key_path)
-        return context
-    except Exception as e:
-        logging.error(f"Error processing certificates: {e}")
-        raise
-    finally:
-        # Verifying that the files were created and deleting them
-        if cert_path and os.path.exists(cert_path):
-            os.unlink(cert_path)
-        if key_path and os.path.exists(key_path):
-            os.unlink(key_path)
+
 
 def setup_server_socket() -> socket.socket:
     """Setup and configure the server socket."""
@@ -212,9 +178,9 @@ def setup_server_socket() -> socket.socket:
 
 def handle_ssl_request(
     ssl_socket: ssl.SSLSocket,
-    messages: List[str], # Note: 'messages' argument seems unused in the current logic
-    client_message_queue: Optional[queue.Queue] = None, # Added queue parameter
-    addr: Optional[str] = None # Added address parameter
+    messages: List[str],
+    client_message_queue: Optional[queue.Queue[Any]] = None, # Added type argument
+    addr: Optional[str] = None
 ) -> bool:
     """Handle the SSL request from the client, optionally sending messages to a queue."""
     try:
@@ -227,12 +193,11 @@ def handle_ssl_request(
             return False
 
         # Assuming verify_client_cert handles DER format directly now
-        if not verify_client_cert(client_cert_bytes, ssl_socket): # Pass only cert bytes
+        if not verify_client_cert(client_cert_bytes): # Only pass cert bytes
             logging.error(f"Client certificate verification failed for {addr}")
             response = (
                 b"HTTP/1.1 403 Forbidden\r\n\r\n"
                 b"Invalid or untrusted client certificate.\n"
-                # b"Common Name should be: " + ClientConfig.HOSTNAME_REQUESTED.encode() + b"\n" # Example detail
             )
             ssl_socket.sendall(response)
             return False
@@ -250,7 +215,7 @@ def handle_ssl_request(
         # Send name response to GUI queue if available
         if client_message_queue and addr and client_name_response:
             try:
-                client_message_queue.put((addr, client_name_response))
+                client_message_queue.put((addr, client_name_response)) # type: ignore
             except Exception as e:
                 logging.error(f"Failed to put client name to queue for {addr}: {e}")
 
@@ -315,3 +280,4 @@ def handle_ssl_request(
         #traceback.print_exc() # Log full traceback for unexpected errors
         return False
     # Note: The 'finally' block for closing the socket is now in CTFServer.handle_collaborator
+

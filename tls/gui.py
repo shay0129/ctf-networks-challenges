@@ -3,23 +3,27 @@ Drone Command & Control Interface GUI
 This GUI is designed to control the drone's command and control interface, including starting/stopping the server, connecting/disconnecting clients, and managing the Certificate Authority (CA).
 
 Usage:
-python -m communication.tls.gui
+cd ctf-networks-challenges
+
+python -m tls.gui
 """
 import threading
 import logging
 import subprocess
 import sys
 import queue
+from typing import Any, Optional
 import io
 import os
 
-from tkinter import scrolledtext, LabelFrame, simpledialog, messagebox, Menu
 import tkinter as tk
+from tkinter import scrolledtext, LabelFrame, simpledialog, Menu
+from tkinter.scrolledtext import ScrolledText
 
 from .ctf_server import CTFServer
 
 # Helper function to stream output from subprocess pipes
-def stream_output(pipe: io.TextIOWrapper, queue: queue.Queue, source: str):
+def stream_output(pipe: io.TextIOWrapper, queue: queue.Queue[Any], source: str):
     """Reads every character from a subprocess pipe (no waiting on '\\n')."""
     try:
         with pipe:
@@ -34,13 +38,13 @@ def stream_output(pipe: io.TextIOWrapper, queue: queue.Queue, source: str):
         queue.put((source, None))
 
 class CTFGui:
-    def __init__(self, root):
+    def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("Drone Command & Control Interface")
-        self.root.geometry("800x650") # Increased height to accommodate proxy inputs
-        self.root.configure(bg="#2E2E2E") # Dark background for a "malicious" look
+        self.root.geometry("800x650")
+        self.root.configure(bg="#2E2E2E")
 
-        self.server = None # Initialize later after creating queues
+        self.server: Optional[CTFServer] = None # Initialize later after creating queues
         self.client_process = None
         self.ca_process = None
         self.server_thread = None
@@ -48,12 +52,12 @@ class CTFGui:
         self.ca_client_stdin = None
 
         # Queues for communication with server thread
-        self.client_update_queue = queue.Queue()
-        self.client_message_queue = queue.Queue()
-        self.subprocess_output_queue = queue.Queue() # Queue for subprocess stdout/stderr
+        self.client_update_queue: queue.Queue[Any] = queue.Queue()
+        self.client_message_queue: queue.Queue[Any] = queue.Queue()
+        self.subprocess_output_queue: queue.Queue[Any] = queue.Queue() # Queue for subprocess stdout/stderr
         self.client_output_buffer = {} # To store output per client process
-        self.output_lines = {} # To store output lines for each source
-        self.client_list = [] # List to keep track of connected clients
+        self.output_lines: dict[str, str] = {} # To store output lines for each source
+        self.client_list: list[str] = [] # List to keep track of connected clients
 
         # Initialize server with queues
         self.server = CTFServer(
@@ -73,44 +77,35 @@ class CTFGui:
         # Start processing queues
         self.root.after(100, self._process_queues)
 
-    def _make_context_menu(self, widget):
-        """Creates a right-click context menu for a text widget."""
-        # Create a Menu widget
+    def _make_context_menu(self, widget: tk.Text) -> None:
         context_menu = Menu(widget, tearoff=0)
-
-        # Add "Copy" command
         context_menu.add_command(label="Copy", command=lambda: self._copy_text(widget))
 
-        # Function to show the menu
-        def show_menu(event):
-            # Display the menu at the cursor's position
-            context_menu.tk_popup(event.x_root, event.y_root)
+        def show_menu(event: tk.Event) -> None:  # type: ignore[name-defined]
+            context_menu.tk_popup(event.x_root, event.y_root)  # type: ignore[attr-defined]
 
-        # Bind right-click event (<Button-3>) to show the menu
-        widget.bind("<Button-3>", show_menu)
+        widget.bind("<Button-3>", show_menu)  # type: ignore
 
-    def _copy_text(self, widget):
-        """Copies the selected text from the widget to the clipboard."""
+    def _copy_text(self, widget: tk.Text) -> None:
         try:
-            # Check if there is selected text
-            if widget.tag_ranges(tk.SEL):
-                selected_text = widget.get(tk.SEL_FIRST, tk.SEL_LAST)
-                # Clear previous clipboard content and append new selection
-                self.root.clipboard_clear()
-                self.root.clipboard_append(selected_text)
-                logging.debug("Text copied to clipboard.") # Optional: log success
+            if widget.tag_ranges(tk.SEL):  # type: ignore[attr-defined]
+                selected_text = widget.get(tk.SEL_FIRST, tk.SEL_LAST)  # type: ignore[attr-defined]
+                self.root.clipboard_clear()  # type: ignore[attr-defined]
+                self.root.clipboard_append(selected_text)  # type: ignore[attr-defined]
+                logging.debug("Text copied to clipboard.")
         except tk.TclError:
-            logging.debug("No text selected to copy.") # Optional: log if no selection
+            logging.debug("No text selected to copy.")
         except Exception as e:
             logging.error(f"Error copying text: {e}")
 
-    def create_widgets(self):
-        """# --- Main Window Configuration ---"""
+    def create_widgets(self) -> None:
         self.root.configure(bg="#2E2E2E")
-        self.root.iconbitmap("communication/tls/drone.ico")          # Set the icon for the window
-        self.root.resizable(False, False)            # Disable resizing
-        # --- Bind window close ('X') button to _on_closing method ---
-        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+        try:
+            self.root.iconbitmap("documents/drone.ico")  # type: ignore[attr-defined]
+        except tk.TclError:
+            logging.warning("Icon file not found, continuing without icon")
+        self.root.resizable(False, False)  # type: ignore[attr-defined]
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)  # type: ignore[attr-defined]
 
         # --- "Drone Core" Frame (Server Control) ---
         server_frame = LabelFrame(self.root, text="Drone Core (Server Control)", fg="#FF4500", bg="#333333", font=("Consolas", 10))
@@ -164,7 +159,7 @@ class CTFGui:
         # Use fill=tk.X and expand=True without fixed width
         self.client_input = tk.Entry(client_control_frame, bg="#555555", fg="#EEEEEE", insertbackground="#EEEEEE", font=("Consolas", 9))
         self.client_input.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5)) # Added padding
-        self.client_input.bind("<Return>", self._send_client_input_to_process)
+        self.client_input.bind("<Return>", self._send_client_input_to_process)  # type: ignore
         # --- END OF ADDED INPUT ENTRY ---
 
         # Frame to hold listbox and output area side-by-side
@@ -186,91 +181,74 @@ class CTFGui:
         self.client_output_text.configure(state='disabled')
         # No TODO needed here anymore, handled by _process_queues
 
-    def _ask_proxy_preference(self):
+    def _ask_proxy_preference(self) -> bool:
         """Asks the user for their Burp proxy preference."""
         answer = simpledialog.askstring("Proxy Preference", "Use Burp proxy? (y/n):", parent=self.root)
         return answer.lower().startswith('y') if answer is not None else False
 
-    def _start_server_client_process_with_proxy(self):
+    def _start_server_client_process_with_proxy(self) -> None:
         use_proxy = self._ask_proxy_preference()
         self._start_client_process("client.py", "Collaborator", use_proxy)
 
-    def start_ca_client_with_proxy(self):
+    def start_ca_client_with_proxy(self) -> None:
         use_proxy = self._ask_proxy_preference()
         self._start_client_process("ca_client.py", "CA Collaborator", use_proxy)
 
-    def _start_server_thread(self):
+    def _start_server_thread(self) -> None:
         # Check if thread exists AND is alive
         if self.server_thread is None or not self.server_thread.is_alive():
             try:
                 # Reset server running flag before starting
-                self.server.running = True
-                self.server_thread = threading.Thread(target=self.server.run)
-                self.server_thread.daemon = True
-                self.server_thread.start()
+                if self.server is not None:
+                    self.server.running = True  # type: ignore[attr-defined]
+                    self.server_thread = threading.Thread(target=self.server.run)  # type: ignore[attr-defined]
+                    self.server_thread.daemon = True
+                    self.server_thread.start()
                 # Update button states AFTER successful start
                 self.start_server_button.config(state=tk.DISABLED)
                 self.stop_server_button.config(state=tk.NORMAL)
-                # logging.info("Drone Core initialization sequence started.")
             except threading.ThreadError as e:
                 logging.error(f"Error starting server thread: {e}")
-                # Ensure buttons are in correct state if start fails
                 self.start_server_button.config(state=tk.NORMAL)
                 self.stop_server_button.config(state=tk.DISABLED)
         else:
             logging.warning("Drone Core (Server) is already running.")
-
-        # Placeholder for any additional setup or checks
         pass
 
-    def stop_server(self, log_stopping=True):
+    def stop_server(self, log_stopping: bool = True) -> None:
         # Check if thread exists AND is alive before trying to stop
         if self.server_thread and self.server_thread.is_alive():
             try:
                 if log_stopping:
                     logging.info("Attempting to terminate Drone Core...")
-                    
-                # עצירת השרת תחילה
-                self.server.running = False  # Signal the server thread to stop
-                self.server_thread.join(timeout=1)  # Shorter timeout for closing
-
-                # כעת ניקוי הלוגים לאחר כל ההודעות
+                if self.server is not None:
+                    self.server.running = False  # type: ignore[attr-defined]
+                self.server_thread.join(timeout=1)
                 self._clear_all_logs()
-                
-                # עדכון סטטוס הכפתורים וסיום
                 self.start_server_button.config(state=tk.NORMAL)
                 self.stop_server_button.config(state=tk.DISABLED)
-                self.server_thread = None  # Reset thread variable
-                
+                self.server_thread = None
             except Exception as e:
                 if log_stopping:
                     logging.error(f"Error stopping server: {e}")
-                    
-                # ניקוי הלוגים גם במקרה של שגיאה
                 self._clear_all_logs()
-                
-                # עדכון סטטוס הכפתורים תמיד
                 self.start_server_button.config(state=tk.NORMAL)
                 self.stop_server_button.config(state=tk.DISABLED)
                 self.server_thread = None
         else:
             if log_stopping:
                 logging.warning("Drone Core (Server) is not running or already stopped.")
-            
-            # עדכון סטטוס הכפתורים
             self.start_server_button.config(state=tk.NORMAL)
             self.stop_server_button.config(state=tk.DISABLED)
             self.server_thread = None
-            
-            # ניקוי הלוגים גם במקרה שהשרת כבר לא פעיל
             self._clear_all_logs()
 
-    def _start_ca_process(self):
+    def _start_ca_process(self) -> None:
         # Check if process exists AND is running (poll() is None means running)
         if self.ca_process is None or self.ca_process.poll() is not None:
             try:
                 # Use -u for unbuffered output
-                command = [sys.executable, "-u", "-m", "communication.tls.server_challenges.ca_challenge"]
+                command = [sys.executable, "-u", "-m", "tls.server_challenges.ca_challenge"]
                 # Redirect stdout and stderr
                 self.ca_process = subprocess.Popen(
                     command,
@@ -304,7 +282,7 @@ class CTFGui:
         # Placeholder for any additional setup or checks
         pass
 
-    def stop_ca_process(self, log_stopping=True):
+    def stop_ca_process(self, log_stopping: bool = True) -> None:
         # Check if process exists AND is running (poll() is None means running)
         if self.ca_process and self.ca_process.poll() is None:
             try:
@@ -337,21 +315,20 @@ class CTFGui:
             self.stop_ca_button.config(state=tk.DISABLED)
             self.ca_process = None # Ensure reset
 
-    def _start_client_process(self, script_name, client_type, use_proxy):
-        """Starts the client script as a subprocess and streams output."""
+    def _start_client_process(self, script_name: str, client_type: str, use_proxy: bool) -> None:
+        module_path = f"tls.{script_name.replace('.py', '')}"
         if self.client_process is None or self.client_process.poll() is not None:
             try:
                 logging.info(f"Starting {client_type} ({script_name}) with proxy: {use_proxy}")
-                module_path = f"communication.tls.{script_name.replace('.py', '')}"
                 # Use -u for unbuffered output
                 command = [sys.executable, "-u", "-m", module_path]
                 env = os.environ.copy()
-                env["PYTHONUNBUFFERED"] = "1" # Ensure no buffering
+                env["PYTHONUNBUFFERED"] = "1"
                 self.client_process = subprocess.Popen(
                     command,
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT, # שינוי כאן: איחוד stderr ל-stdout
+                    stderr=subprocess.STDOUT,
                     env=env,
                     text=True,
                     bufsize=0
@@ -360,18 +337,12 @@ class CTFGui:
                     self.client_stdin = self.client_process.stdin
                 elif client_type == "CA Collaborator":
                     self.ca_client_stdin = self.client_process.stdin
-
-                # Start thread to read output (only stdout now)
                 threading.Thread(target=stream_output, args=(self.client_process.stdout, self.subprocess_output_queue, f"{client_type}_OUT"), daemon=True).start()
-
-                # Send proxy preference to the client
                 if self.client_process and self.client_process.stdin:
                     proxy_answer = 'y\n' if use_proxy else 'n\n'
                     self.client_process.stdin.write(proxy_answer)
                     self.client_process.stdin.flush()
                     logging.info(f"Sent proxy preference '{proxy_answer.strip()}' to {client_type}")
-
-                # Update button states
                 self.connect_collaborator_button.config(state=tk.DISABLED)
                 self.connect_ca_collaborator_button.config(state=tk.DISABLED)
                 self.disconnect_collaborator_button.config(state=tk.NORMAL)
@@ -389,7 +360,7 @@ class CTFGui:
         else:
             logging.warning(f"{client_type} subprocess is already running.")
 
-    def _stop_client_process(self, log_stopping=True):
+    def _stop_client_process(self, log_stopping: bool = True) -> None:
         if self.client_process and self.client_process.poll() is None:
             try:
                 if log_stopping:
@@ -430,7 +401,7 @@ class CTFGui:
             self.client_stdin = None
             self.ca_client_stdin = None
 
-    def _send_client_input_to_process(self, event):
+    def _send_client_input_to_process(self, event: tk.Event) -> None:  # type: ignore[name-defined]
         command = self.client_input.get()
         # Determine which client to send the command to (currently only one)
         if self.client_process and self.client_process.poll() is None and self.client_process.stdin:
@@ -443,39 +414,38 @@ class CTFGui:
         else:
             logging.error("Client process stdin is not available.")
 
-    def _add_client_to_list(self, client_id):
-        """Adds a client identifier to the listbox."""
-        if client_id not in self.client_listbox.get(0, tk.END):
-            self.client_listbox.insert(tk.END, client_id)
+    def _add_client_to_list(self, client_id: str) -> None:
+        current_items = list(self.client_listbox.get(0, tk.END))  # type: ignore[attr-defined]
+        if client_id not in current_items:
+            self.client_listbox.insert(tk.END, client_id)  # type: ignore[attr-defined]
             logging.info(f"GUI: Bot {client_id} connected.")
 
-    def _remove_client_from_list(self, client_id):
-        """Removes a client identifier from the listbox."""
+    def _remove_client_from_list(self, client_id: str) -> None:
         try:
-            items = list(self.client_listbox.get(0, tk.END))
+            items = list(self.client_listbox.get(0, tk.END))  # type: ignore[attr-defined]
             if client_id in items:
-                index = items.index(client_id)
-                self.client_listbox.delete(index)
+                index = items.index(client_id)  # type: ignore
+                self.client_listbox.delete(index)  # type: ignore[attr-defined]
                 logging.info(f"GUI: Bot {client_id} disconnected.")
         except tk.TclError:
-            pass # Ignore if listbox is already destroyed
+            pass
 
-    def _display_client_output(self, source, message):
+    def _display_client_output(self, source: str, message: str) -> None:
         try:
-            self.client_output_text.configure(state='normal')
+            self.client_output_text.configure(state='normal')  # type: ignore[attr-defined]
             if source not in self.output_lines:
                 self.output_lines[source] = ""
             self.output_lines[source] += message
             if '\n' in self.output_lines[source]:
                 line, rest = self.output_lines[source].split('\n', 1)
-                self.client_output_text.insert(tk.END, f"[{source}]: {line}\n")
+                self.client_output_text.insert(tk.END, f"[{source}]: {line}\n")  # type: ignore[attr-defined]
                 self.output_lines[source] = rest
-            self.client_output_text.see(tk.END)
-            self.client_output_text.configure(state='disabled')
+            self.client_output_text.see(tk.END)  # type: ignore[attr-defined]
+            self.client_output_text.configure(state='disabled')  # type: ignore[attr-defined]
         except tk.TclError:
-            pass # Ignore errors if widget is destroyed
+            pass
 
-    def _process_queues(self):
+    def _process_queues(self) -> None:
         """Process updates from the server thread and subprocess queues."""
         try:
             # Process client connection updates from the server
@@ -512,15 +482,15 @@ class CTFGui:
         except Exception as e:
             logging.error(f"GUI Error processing queue: {e}")
         finally:
-            self.root.after(100, self._process_queues) # Schedule the next check
+            self.root.after(100, self._process_queues)  # type: ignore[attr-defined]
 
-    def _clear_all_logs(self):
+    def _clear_all_logs(self) -> None:
         """Clear all log displays"""
         try:
             # Clear server log
-            self.server_log_text.configure(state='normal')
-            self.server_log_text.delete('1.0', tk.END)
-            self.server_log_text.configure(state='disabled')
+            self.server_log_text.configure(state='normal')  # type: ignore[attr-defined]
+            self.server_log_text.delete('1.0', tk.END)  # type: ignore[attr-defined]
+            self.server_log_text.configure(state='disabled')  # type: ignore[attr-defined]
             
             # Clear client output
             self._clear_client_output_display()
@@ -531,20 +501,20 @@ class CTFGui:
             
             logging.debug("All logs cleared")
         except tk.TclError:
-            pass # Ignore if widgets are destroyed
+            pass
         except Exception as e:
             logging.error(f"Error clearing logs: {e}")
     
-    def _clear_client_output_display(self):
+    def _clear_client_output_display(self) -> None:
         """Clear the client output text widget."""
         try:
-            self.client_output_text.configure(state='normal')
-            self.client_output_text.delete('1.0', tk.END)
-            self.client_output_text.configure(state='disabled')
+            self.client_output_text.configure(state='normal')  # type: ignore[attr-defined]
+            self.client_output_text.delete('1.0', tk.END)  # type: ignore[attr-defined]
+            self.client_output_text.configure(state='disabled')  # type: ignore[attr-defined]
         except tk.TclError:
-            pass  # Ignore if the widget has been destroyed
+            pass
 
-    def _on_closing(self):
+    def _on_closing(self) -> None:
         """Handles the event when the user clicks the 'X' button."""
         logging.info("Close button clicked. Shutting down...")
         # Attempt to stop all running components without excessive logging
@@ -556,14 +526,12 @@ class CTFGui:
         # Cancel the scheduled queue check before destroying
         # This requires storing the after_id, let's simplify for now
         # and rely on root.destroy() cleaning things up.
-        self.root.destroy() # Close the Tkinter window object and exit the application
-        # sys.exit(0) # Usually not needed if root.destroy() is called
+        self.root.destroy()  # type: ignore[attr-defined]
 
 class GuiHandler(logging.Handler):
-    def __init__(self, text_widget):
+    def __init__(self, text_widget: ScrolledText) -> None:
         logging.Handler.__init__(self)
         self.text_widget = text_widget
-        # Define log level tags (should match tag_config in create_widgets)
         self.log_level_tags = {
             logging.DEBUG: 'DEBUG',
             logging.INFO: 'INFO',
@@ -572,20 +540,17 @@ class GuiHandler(logging.Handler):
             logging.CRITICAL: 'CRITICAL',
         }
 
-    def emit(self, record):
+    def emit(self, record: logging.LogRecord) -> None:
         msg = self.format(record)
-        # Determine the tag based on log level
-        tag = self.log_level_tags.get(record.levelno, 'INFO') # Default to INFO
+        tag = self.log_level_tags.get(record.levelno, 'INFO')
         try:
-            self.text_widget.configure(state='normal')
-            # Insert message with the appropriate tag
-            self.text_widget.insert(tk.END, msg + '\n', (tag,))
-            self.text_widget.see(tk.END)
-            self.text_widget.configure(state='disabled')
+            self.text_widget.configure(state='normal')  # type: ignore[attr-defined]
+            self.text_widget.insert(tk.END, msg + '\n', (tag,))  # type: ignore[attr-defined]
+            self.text_widget.see(tk.END)  # type: ignore[attr-defined]
+            self.text_widget.configure(state='disabled')  # type: ignore[attr-defined]
         except tk.TclError:
-            pass # Ignore errors if widget is destroyed
+            pass
         except Exception as e:
-            # Handle other potential errors during emit
             print(f"Error in GuiHandler: {e}")
 
 

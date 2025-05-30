@@ -1,9 +1,9 @@
+# type: ignore[attr-defined]
 """Ping the server with custom ICMP packets using Scapy
 This script sends ICMP Echo Request packets with incremental payload sizes to the server.
 It uses Scapy to create and send the packets, and logs the responses received from the server.
 The script is designed to work with a loopback interface (e.g., lo0) and can be run on various operating systems."""
 
-from scapy.interfaces import show_interfaces, dev_from_index
 from scapy.config import conf
 from scapy.sendrecv import sr1
 from scapy.layers.inet import IP, ICMP
@@ -17,11 +17,11 @@ logging.info("Available interfaces:")
 #show_interfaces()
 
 # Define the interface to use for sending packets
-conf.iface = dev_from_index(1)  # Replace the number with the index of the loopback interface
+# conf.iface = dev_from_index(1)  # Removed: not portable and causes errors
 
 # Method 2: Select interface by name (works on most systems)
 for iface_name, iface_data in conf.ifaces.items():
-    if "lo" == iface_name or "Loopback" in str(iface_data):
+    if str(iface_name) == "lo" or "Loopback" in str(iface_data):
         conf.iface = iface_name
         logging.info(f"Using interface: {conf.iface}")
         break
@@ -51,7 +51,7 @@ def send_icmp_packets():
         logging.info(f"Sending ICMP packet #{i+1} with size {size} bytes to {target_ip}")
         
         # Use sr1 with verbose=0 to reduce output
-        response = sr1(icmp_request, timeout=2, verbose=0, iface=conf.iface)
+        response = sr1(icmp_request, timeout=2, verbose=0)
         
         if response:
             if response.haslayer(ICMP) and response.getlayer(ICMP).id == CUSTOM_ICMP_ID:

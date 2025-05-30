@@ -7,13 +7,13 @@ from .ca_challenge import CAChallenge
 from .enigma_challenge import EnigmaChallenge
 
 __all__ = [
-   # ICMP Challenge Components
-   'ICMPChallenge',
-   'start_icmp_server',
-   
-   # CA Server Components
-   'CAChallenge'
+    # ICMP Challenge Components
+    'ICMPChallenge',
+    'start_icmp_server',
 
-   # Enigma Challenge Components  
-   'EnigmaChallenge',
+    # CA Server Components
+    'CAChallenge',
+
+    # Enigma Challenge Components  
+    'EnigmaChallenge',
 ]

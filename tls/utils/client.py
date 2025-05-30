@@ -1,3 +1,4 @@
+# type: ignore[attr-defined]
 """Client utilities."""
 from typing import Optional
 from socket import socket
@@ -33,7 +34,7 @@ def setup_proxy_connection(sock: socket, server_ip: str, server_port: int) -> No
         try:
             chunk = sock.recv(4096)
             if not chunk:
-                raise ConnectionError("Connection closed by proxy") 
+                raise ConnectionError("Connection closed by proxy")
             response += chunk
             logging.debug(f"Received from proxy: {chunk}")
         except socket.timeout:

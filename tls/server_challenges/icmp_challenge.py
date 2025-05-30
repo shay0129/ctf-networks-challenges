@@ -1,3 +1,4 @@
+# type: ignore[attr-defined]
 """
 ICMP Challenge Module
 Handles ICMP-based challenges for the CTF server.
@@ -5,11 +6,11 @@ Handles ICMP-based challenges for the CTF server.
 import threading
 import logging
 import time
+from typing import Any
 
-from scapy.interfaces import show_interfaces, dev_from_index
 from scapy.layers.inet import IP, ICMP
 from scapy.sendrecv import sniff
-from scapy.config import conf
+from scapy.interfaces import dev_from_index  # Removed unused show_interfaces
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -22,8 +23,10 @@ class ICMPChallenge:
     def __init__(self):
         self.reset_state()
         self.completion_event = threading.Event()
+        self.successful_pings: list[Any] = []
+        self.start_time: float | None = None
     
-    def handle_request(self, packet):
+    def handle_request(self, packet: Any) -> None:
         """ Processes incoming ICMP Echo Requests and validates the challenge sequence """
         if not packet.haslayer(ICMP) or not packet.haslayer(IP):
             return
@@ -34,11 +37,11 @@ class ICMPChallenge:
         # Check that this is a ping to the local machine
         if ip_layer.dst != "127.0.0.1":
             return
-            
+        
         # Check that this is an Echo Request packet
-        if icmp_layer.type != 8:  # 8 = Echo Request
+        if icmp_layer.type != 8:
             return
-            
+        
         # Check that the ID matches what our client sends
         if icmp_layer.id != CUSTOM_ICMP_ID:
             logging.debug(f"ID {icmp_layer.id} (expecting {CUSTOM_ICMP_ID})")
@@ -65,7 +68,7 @@ class ICMPChallenge:
             logging.info(f"Incorrect ping size. Expected: {expected_size}, Got: {payload_size}")
             self.reset_state()
             return
-            
+        
         if icmp_layer.seq != expected_seq:
             logging.info(f"Incorrect ping sequence. Expected: {expected_seq}, Got: {icmp_layer.seq}")
             self.reset_state()
@@ -75,8 +78,10 @@ class ICMPChallenge:
         logging.info(f"Valid ping #{len(self.successful_pings)} received with size {payload_size} bytes")
 
         if len(self.successful_pings) == 5:
-            elapsed_time = time.time() - self.start_time
-
+            if self.start_time is not None:
+                elapsed_time = time.time() - self.start_time
+            else:
+                elapsed_time = 0.0
             if 9 <= elapsed_time <= 11:
                 logging.info(f"Challenge completed successfully in {elapsed_time:.2f} seconds.")
                 self.completion_event.set()
@@ -86,7 +91,7 @@ class ICMPChallenge:
         else:
             logging.info(f"Waiting for next ping with size {len(self.successful_pings) * 100} bytes...")
 
-    def reset_state(self):
+    def reset_state(self) -> None:
         """ Resets the challenge state """
         self.start_time = None
         self.successful_pings = []

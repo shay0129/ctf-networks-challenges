@@ -3,8 +3,7 @@ Server Implementation Module
 Implements sequential CTF challenges starting with ICMP
 
 """
-from typing import List, Optional
-import traceback
+from typing import Union, Optional, List, Any
 import threading
 import logging
 import socket
@@ -12,31 +11,29 @@ import select
 import time
 import ssl
 import queue
+import tempfile
+import os
 
 from .protocol import ServerConfig, ProtocolConfig, SSLConfig
-from .utils.server import handle_ssl_request, _temp_cert_to_context
+from .utils.server import handle_ssl_request, _temp_cert_to_context  # type: ignore[reportPrivateUsage]
 from .server_challenges.icmp_challenge import start_icmp_server
 from .server_challenges.ca_challenge import CAChallenge
 from .server_challenges.enigma_challenge import EnigmaChallenge
 
 class CTFServer:
     """Main CTF server managing all challenges sequentially"""
-    # Accept queues in constructor
-    def __init__(self, client_update_queue=None, client_message_queue=None):
-        self.running = True
-        self.icmp_completed = False
-        self.ca_challenge = CAChallenge()
-        self.image_challenge = EnigmaChallenge()
+    def __init__(self, client_update_queue: Optional[queue.Queue[Any]] = None, client_message_queue: Optional[queue.Queue[Any]] = None):
+        self.running: bool = True
+        self.icmp_completed: bool = False
+        self.ca_challenge: CAChallenge = CAChallenge()
+        self.image_challenge: EnigmaChallenge = EnigmaChallenge()
         self.server_socket: Optional[socket.socket] = None
         self.context: Optional[ssl.SSLContext] = None
-        # self.client_random = None # Seems unused
-        # self.master_secret = None # Seems unused
         self.logger = logging.getLogger('server')
-        self.collaborator_sockets: List[ssl.SSLSocket] = [] # Store sockets if needed elsewhere
+        self.collaborator_sockets: List[ssl.SSLSocket] = []
         self.collaborator_threads: List[threading.Thread] = []
-        # Store the queues
-        self.client_update_queue = client_update_queue
-        self.client_message_queue = client_message_queue
+        self.client_update_queue: Optional[queue.Queue[Any]] = client_update_queue
+        self.client_message_queue: Optional[queue.Queue[Any]] = client_message_queue
 
     def run(self) -> None:
         """Runs the ICMP challenge first, then initializes and runs the main TLS server loop if ICMP succeeds."""
@@ -72,11 +69,13 @@ class CTFServer:
         self.server_socket.setblocking(False)
         self.logger.info(f"Listening for collaborator connections on {ServerConfig.IP}:{ServerConfig.PORT}")
 
-    def handle_collaborator(self, ssl_socket: ssl.SSLSocket, addr: tuple) -> None:
+    def handle_collaborator(self, ssl_socket: ssl.SSLSocket, addr: tuple[Any, ...]) -> None:
         """Handle communication with a connected collaborator using handle_ssl_request."""
         addr_str = str(addr) # Use string representation for queue/listbox
         try:
             self.logger.info(f"Handling collaborator connection from {addr_str}")
+            # Todo: Implement the verification of the client certificate here, after client cert included handshake
+            print("!!!")  # Debugging print to indicate start of handling
             # Pass the message queue and address to handle_ssl_request
             if handle_ssl_request(ssl_socket, [], client_message_queue=self.client_message_queue, addr=addr_str):
                 self.logger.info(f"Collaborator {addr_str} request handled successfully by handle_ssl_request.")
@@ -110,30 +109,33 @@ class CTFServer:
         start_time = time.time()
 
         while self.running:
-            ready, _, _ = select.select([self.server_socket], [], [], 0.1)
+            ready, _, _ = select.select([self.server_socket], [], [], 0.1)  # type: ignore[attr-defined]
 
             if ready:
-                client_socket, addr = self.server_socket.accept()
+                client_socket, addr = self.server_socket.accept()  # type: ignore[attr-defined]
                 addr_str = str(addr) # Use string representation
                 self.logger.info(f"Server: Collaborator connected from {addr_str}")
                 try:
-                    ssl_socket = self.context.wrap_socket(
-                        client_socket,
-                        server_side=True,
-                        do_handshake_on_connect=True
-                    )
-                    self.collaborator_sockets.append(ssl_socket) # Keep track if needed
+                    if self.context is not None:
+                        ssl_socket = self.context.wrap_socket(
+                            client_socket,
+                            server_side=True,
+                            do_handshake_on_connect=True
+                        )
+                        self.collaborator_sockets.append(ssl_socket) # Keep track if needed
 
-                    # Notify GUI about connection *before* starting thread
-                    if self.client_update_queue:
-                        self.client_update_queue.put(('connect', addr_str))
+                        # Notify GUI about connection *before* starting thread
+                        if self.client_update_queue:
+                            self.client_update_queue.put(('connect', addr_str))
 
-                    # Start handler thread
-                    thread = threading.Thread(target=self.handle_collaborator, args=(ssl_socket, addr))
-                    self.collaborator_threads.append(thread)
-                    thread.daemon = True # Ensure threads exit when main program exits
-                    thread.start()
-
+                        # Start handler thread
+                        thread = threading.Thread(target=self.handle_collaborator, args=(ssl_socket, addr))
+                        self.collaborator_threads.append(thread)
+                        thread.daemon = True # Ensure threads exit when main program exits
+                        thread.start()
+                    else:
+                        self.logger.error("SSL context is None, cannot wrap socket.")
+                        client_socket.close()
                 except ssl.SSLError as e:
                     self.logger.error(f"SSL Handshake with {addr_str} failed: {e}")
                     client_socket.close()
@@ -168,6 +170,40 @@ class CTFServer:
                 pass
         self.logger.info("Server stopped")
 
+def _temp_cert_to_context(context: ssl.SSLContext, cert_content: Union[str, bytes], key_content: Optional[Union[str, bytes]] = None) -> ssl.SSLContext:  # noqa: F401, pylint: disable=unused-function
+    """
+    [INTERNAL/RESERVED] Create temporary files to store the certificate and key, and load them into the SSL context.
+    This function is retained for possible future use or for reference in dynamic SSL context loading.
+    """
+    cert_path = key_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode='wb', delete=False) as temp_cert:
+            if isinstance(cert_content, str):
+                temp_cert.write(cert_content.encode())
+            else:
+                temp_cert.write(cert_content)
+            cert_path = temp_cert.name
+            
+        if key_content:
+            with tempfile.NamedTemporaryFile(mode='wb', delete=False) as temp_key:
+                if isinstance(key_content, str):
+                    temp_key.write(key_content.encode())
+                else:
+                    temp_key.write(key_content)
+                key_path = temp_key.name
+        
+        # Load the certificate and key into the context
+        context.load_cert_chain(certfile=cert_path, keyfile=key_path)
+        return context
+    except Exception as e:
+        logging.error(f"Error processing certificates: {e}")
+        raise
+    finally:
+        # Verifying that the files were created and deleting them
+        if cert_path and os.path.exists(cert_path):
+            os.unlink(cert_path)
+        if key_path and os.path.exists(key_path):
+            os.unlink(key_path)
 
 def create_server_ssl_context(cert_content: str, key_content: str) -> ssl.SSLContext:
     """Create an SSL context for the server."""
@@ -176,7 +212,7 @@ def create_server_ssl_context(cert_content: str, key_content: str) -> ssl.SSLCon
 
     try:
         # Load the certificate and key into the context
-        context = _temp_cert_to_context(context, cert_content, key_content)
+        context = _temp_cert_to_context(context, cert_content, key_content)  # type: ignore[reportPrivateUsage]
 
         context.verify_mode = ssl.CERT_REQUIRED
         context.verify_flags = ssl.VERIFY_DEFAULT

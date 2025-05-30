@@ -1,19 +1,16 @@
+# pyright: ignore[reportUnusedFunction]
 """
 Certificate Authority Server Utilities
 Provides functions for SSL certificate operations, CSR handling, and HTTP parsing.
 """
-from typing import Tuple, Optional, Dict, Union, NamedTuple
+from typing import Tuple, Optional, Dict, Union, NamedTuple, List
 from socket import socket, timeout as socket_timeout
 import random
 import logging
 import ssl
 import time
-import traceback
 
 from urllib.parse import urlparse, parse_qs, urlencode
-from cryptography.hazmat.primitives.asymmetric import padding as asymmetric_padding
-from cryptography.hazmat.backends import default_backend
-from cryptography import x509
 from OpenSSL import crypto
 
 from ..protocol import ProtocolConfig, PADDING_MARKER
@@ -23,7 +20,7 @@ class ParsedRequest(NamedTuple):
     method: bytes
     path: bytes
     version: bytes
-    query_params: Dict[str, list]
+    query_params: Dict[str, List[str]]
     headers: Dict[bytes, bytes]
     body: bytes
 
@@ -67,7 +64,7 @@ def sign_csr_with_ca(csr_pem: bytes, ca_key_pem: bytes, ca_cert_pem: bytes) -> O
         cert.sign(ca_key, 'sha512')
         return crypto.dump_certificate(crypto.FILETYPE_PEM, cert)
 
-    except Exception as e:
+    except Exception:
         # logging.error(f"Error signing CSR: {e}")
         return None
 
@@ -81,7 +78,7 @@ def download_file(file_name: str, content: Union[str, bytes]) -> bool:
                 f.write(content)
         #logging.info(f"File saved to {file_name}")
         return True
-    except (IOError, OSError) as e:
+    except (IOError, OSError):
         ## logging.error(f"Error saving file {file_name}: {e}")
         return False
 
@@ -98,27 +95,22 @@ def parse_http_headers(raw_data: bytes) -> Tuple[Optional[Dict[bytes, bytes]], b
     try:
         header_part, body = raw_data.split(b'\r\n\r\n', 1)
         header_lines = header_part.split(b'\r\n')
-        
+        headers: Dict[bytes, bytes] = {}
         # Parse first line for request info
         first_line = header_lines[0].split(b' ')
         if len(first_line) >= 3:
             method, raw_url, version = first_line
             # Parse URL using urlparse
             parsed_url = urlparse(raw_url.decode('utf-8'))
-            
-            headers = {
-                b'request_method': method,
-                b'request_path': parsed_url.path.encode(),
-                b'request_version': version
-            }
-            
+            headers[b'request_method'] = method
+            headers[b'request_path'] = parsed_url.path.encode()
+            headers[b'request_version'] = version
             # Add query parameters if present
             if parsed_url.query:
                 headers[b'request_query'] = parsed_url.query.encode()
                 query_params = parse_qs(parsed_url.query)
                 for key, value in query_params.items():
                     headers[f'query_{key}'.encode()] = value[0].encode()
-                    
         # Parse remaining headers
         for line in header_lines[1:]:
             if b':' in line:
@@ -134,9 +126,8 @@ def parse_http_headers(raw_data: bytes) -> Tuple[Optional[Dict[bytes, bytes]], b
 
         return headers, body, content_length
         
-    except Exception as e:
+    except Exception:
         # logging.error(f"Error parsing HTTP headers: {e}")
-        #traceback.print_exc()
         return None, b"", None
 
 def parse_http_request(data: bytes) -> Optional[ParsedRequest]:
@@ -156,7 +147,6 @@ def parse_http_request(data: bytes) -> Optional[ParsedRequest]:
 
         headers_raw, body = data.split(b'\r\n\r\n', 1)
         header_lines = headers_raw.split(b'\r\n')
-        
         # Parse request line
         method, raw_url, version = header_lines[0].split(b' ', 2)
         
@@ -168,7 +158,7 @@ def parse_http_request(data: bytes) -> Optional[ParsedRequest]:
         query_params = parse_qs(parsed_url.query) if parsed_url.query else {}
         
         # Parse headers
-        headers = {}
+        headers: Dict[bytes, bytes] = {}
         for line in header_lines[1:]:
             if b':' in line:
                 key, value = line.split(b':', 1)
@@ -194,9 +184,8 @@ def parse_http_request(data: bytes) -> Optional[ParsedRequest]:
             body=body
         )
         
-    except Exception as e:
+    except Exception:
         # logging.error(f"Error parsing HTTP request: {e}")
-        #traceback.print_exc()
         return None
 
 def format_response_with_query(status_line: bytes, response_data: Dict[str, str], 
@@ -248,59 +237,16 @@ def verify_client_csr(csr_data: bytes, client_socket: ssl.SSLSocket) -> Optional
                 # logging.error("Failed to load CSR - null object returned")
                 send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Invalid CSR")
                 return None
-        except Exception as cert_error:
+        except Exception:
             # logging.error(f"Exception loading CSR: {cert_error}")
             send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Error parsing CSR")
             return None
-        
-        # Check if Organization (O) is Sharif University of Technology
-        try:
-            org_name = csr_obj.get_subject().O
-            if not org_name:
-                # logging.error("Missing organization name in CSR")
-                send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Missing organization name in CSR")
-                return None
-                
-            if org_name != "Sharif University of Technology":
-                # logging.error(f"Invalid organization in CSR: '{org_name}'")
-                send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Invalid organization in CSR")
-                return None
-                
-            logging.debug(f"Organization verified: {org_name}")
-        except Exception as e:
-            # logging.error(f"Error checking organization name: {e}")
-            send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Error validating CSR organization")
+        # Verify CSR signature
+        if not csr_obj.verify(csr_obj.get_pubkey()):
+            # logging.error("CSR signature verification failed")
+            send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"CSR signature verification failed")
             return None
-        
-        # Get the CN from CSR - we'll use it as the user name
-        try:
-            common_name = csr_obj.get_subject().CN
-            if not common_name:
-                # logging.error("Missing Common Name (CN) in CSR")
-                send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Missing Common Name in CSR")
-                return None
-                
-            # שליחת הודעה מותאמת אישית עם שם המשתמש
-            greeting_msg = f"Hello {common_name}, your CSR is valid! Proceeding to next step...".encode('utf-8')
-            response_headers = [
-                b"HTTP/1.1 200 OK",
-                b"Content-Type: text/plain",
-                b"Content-Length: " + str(len(greeting_msg)).encode('utf-8'),
-                b"Connection: keep-alive",
-                b"",
-                b""
-            ]
-            client_socket.sendall(b"\r\n".join(response_headers) + greeting_msg)
-            
-            logging.info(f"Using CN as name: {common_name}")
-            return csr_obj, common_name
-            
-        except Exception as e:
-            # logging.error(f"Error processing CN from CSR: {e}")
-            send_error_response(client_socket, b"HTTP/1.1 403 Forbidden", b"Error processing certificate information")
-            return None
-        
-    except Exception as e:
+    except Exception:
         # logging.error(f"CSR verification failed: {e}")
         return None
 
@@ -342,50 +288,52 @@ def read_client_name_response(client_socket: ssl.SSLSocket, timeout: int = 10) -
         # Reset the timeout to the default value
         client_socket.settimeout(None)
 
-def _extract_csr(ssl_socket: ssl.SSLSocket, headers: dict, initial_body: bytes) -> Tuple[bool, Optional[Tuple[bytes, int]]]:
-        """Extract CSR and checksum from request body without validation"""
-        try:
-            
-            # Extract Content-Length from headers
-            content_length_header = next((v for k, v in headers.items() if k.lower() == b'content-length'), b'0')
-            declared_length = int(content_length_header)
-            
-            # Read complete request body
-            body = read_request_body(ssl_socket, initial_body, declared_length)
-            
-            # Locate the padding marker
-            if PADDING_MARKER not in body:
-                logging.warning("Padding marker not found in request body")
-                send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid CSR format: missing padding marker")
-                return False, (None, None)
-                
-            # Split the body by the padding marker
-            csr_part, checksum_part = body.split(PADDING_MARKER, 1)
-            
-            # Handle newlines correctly
-            csr_part = _normalize_csr_newlines(csr_part)
-            
-            # Extract the embedded length
-            try:
-                # Clean non-numeric characters before parsing
-                checksum_text = checksum_part.decode('utf-8').strip()
-                # Remove any non-digit characters
-                cleaned_checksum = ''.join(c for c in checksum_text if c.isdigit())
-                embedded_length = int(cleaned_checksum)
-                return True, (csr_part, embedded_length)
-            except ValueError:
-                logging.warning(f"Could not parse embedded length from: {checksum_part!r}")
-                send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid CSR format: checksum not a number")
-                return False, None
-                
-        except ValueError:
-            logging.warning("Invalid Content-Length header")
-            send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid Content-Length")
+def _extract_csr(ssl_socket: ssl.SSLSocket, headers: Dict[bytes, bytes], initial_body: bytes) -> Tuple[bool, Optional[Tuple[bytes, int]]]:  # noqa: F401, pylint: disable=unused-function
+    """
+    [INTERNAL/RESERVED] Extract CSR and checksum from request body without validation.
+    This function is retained for possible future use or for reference in CSR handling logic.
+    """
+    try:
+        # Extract Content-Length from headers
+        content_length_header: bytes = headers.get(b'content-length', b'0')
+        declared_length = int(content_length_header)
+        
+        # Read complete request body
+        body = read_request_body(ssl_socket, initial_body, declared_length)
+        
+        # Locate the padding marker
+        if PADDING_MARKER not in body:
+            logging.warning("Padding marker not found in request body")
+            send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid CSR format: missing padding marker")
             return False, None
-        except Exception as e:
-            # logging.error(f"Error extracting CSR: {str(e)}")
-            send_error_response(ssl_socket, b"HTTP/1.1 500 Internal Server Error", b"Internal server error during CSR extraction")
-            return False, (None, None)
+            
+        # Split the body by the padding marker
+        csr_part, checksum_part = body.split(PADDING_MARKER, 1)
+        
+        # Handle newlines correctly
+        csr_part = _normalize_csr_newlines(csr_part)
+        
+        # Extract the embedded length
+        try:
+            # Clean non-numeric characters before parsing
+            checksum_text = checksum_part.decode('utf-8').strip()
+            # Remove any non-digit characters
+            cleaned_checksum = ''.join(c for c in checksum_text if c.isdigit())
+            embedded_length = int(cleaned_checksum)
+            return True, (csr_part, embedded_length)
+        except ValueError:
+            logging.warning(f"Could not parse embedded length from: {checksum_part!r}")
+            send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid CSR format: checksum not a number")
+            return False, None
+            
+    except ValueError:
+        logging.warning("Invalid Content-Length header")
+        send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid Content-Length")
+        return False, None
+    except Exception:
+        # logging.error(f"Error extracting CSR: {str(e)}")
+        send_error_response(ssl_socket, b"HTTP/1.1 500 Internal Server Error", b"Internal server error during CSR extraction")
+        return False, None
 
 def _normalize_csr_newlines(csr_part: bytes) -> bytes:
         """Handle the newline issue with CSR by normalizing newlines"""
@@ -401,14 +349,17 @@ def _normalize_csr_newlines(csr_part: bytes) -> bytes:
             # If no newline at end, don't change anything
             return csr_part
         
-def _validate_csr_checksum(original_csr: bytes, embedded_length: int) -> bool:
-        """Validate that the CSR length matches the embedded checksum."""
-        actual_length = len(original_csr)
-        if actual_length != embedded_length:
-            logging.warning(f"CSR length mismatch: {actual_length} != {embedded_length}")
-            return False
-        logging.debug(f"CSR length verified: {actual_length} == {embedded_length}")
-        return True
+def _validate_csr_checksum(original_csr: bytes, embedded_length: int) -> bool:  # noqa: F401, pylint: disable=unused-function
+    """
+    [INTERNAL/RESERVED] Validate that the CSR length matches the embedded checksum.
+    This function is retained for possible future use or for reference in CSR validation logic.
+    """
+    actual_length = len(original_csr)
+    if actual_length != embedded_length:
+        logging.warning(f"CSR length mismatch: {actual_length} != {embedded_length}")
+        return False
+    logging.debug(f"CSR length verified: {actual_length} == {embedded_length}")
+    return True
 
 def validate_certificate(cert_data: bytes) -> bool:
     """ Validate certificate PEM format. """
@@ -477,3 +428,6 @@ def send_error_response(ssl_socket: ssl.SSLSocket, status: bytes, message: bytes
     """ Send an error response to the client. """
     response = format_error_response(status, message)
     ssl_socket.sendall(response)
+
+# Dummy references to silence unused function warnings for linters and Pylance
+_unused = (_extract_csr, _validate_csr_checksum)

@@ -3,14 +3,12 @@ Unified SSL Client Module
 Handles communication with Server.
 """
 from typing import Optional
-import traceback
 import logging
 import socket
 import ssl
 
 from .protocol import ServerConfig, ProtocolConfig, BurpConfig, ClientConfig
 from .utils.client import setup_proxy_connection
-from .utils.ca import download_file
 
 def create_client_ssl_context(use_proxy: bool = False) -> Optional[ssl.SSLContext]:
     """Create an SSL context for the client.
@@ -97,12 +95,20 @@ class CTFClient:
 
                 # Wrap the socket with SSL (wrap is a blocking call, so it will wait for the handshake)
                 # Note: The proxy will handle the SSL handshake with the server
-                secure_sock = self.context.wrap_socket(sock)
+                if self.context is not None:
+                    secure_sock = self.context.wrap_socket(sock)  # type: ignore[attr-defined]
+                else:
+                    logging.error("SSL context is not initialized.")
+                    return None
                 logging.info(f"Connected to Burp Proxy, forwarding to {host}:{port}...")
             else:
                 sock = socket.create_connection((host, port))
                 sock.settimeout(ProtocolConfig.TIMEOUT)
-                secure_sock = self.context.wrap_socket(sock, server_hostname=host)
+                if self.context is not None:
+                    secure_sock = self.context.wrap_socket(sock, server_hostname=host)  # type: ignore[attr-defined]
+                else:
+                    logging.error("SSL context is not initialized.")
+                    return None
                 logging.info(f"Connecting to {host}:{port}...")
 
             logging.info(f"SSL handshake successful with {secure_sock.getpeername()}")
@@ -111,42 +117,11 @@ class CTFClient:
             logging.error(f"Error during connection: {e}")
             return None
 
-    # def _communicate_with_server(self) -> None:
-    #     """Communicate with server after establishing connection"""
-    #     try:
-    #         if not os.path.exists(ClientConfig.CLIENT_CERT_PATH):
-    #             request = "Any body home?"
-    #             self.secure_sock.sendall(request.encode())
-    #             logging.info("Sent: Any body home?")
-
-    #             response = self.secure_sock.recv(1024).decode('utf-8')
-    #             logging.info(f"Received: {response}")
-                
-    #             if response == "Yes, I'm here!":
-    #                 logging.info("Server is alive! Try to reach it another way...")
-    #             return
-
-    #         logging.info(f"Handshake successful with {self.secure_sock.getpeername()}")
-    #         logging.debug(f"Using cipher: {self.secure_sock.cipher()}")
-    #         logging.debug(f"SSL version: {self.secure_sock.version()}")
-
-    #         request = (
-    #             f"GET /resource HTTP/1.1\r\n"
-    #             f"Host: {ServerConfig.HOSTNAME}\r\n"
-    #             f"\r\n"
-    #         )
-    #         self.secure_sock.sendall(request.encode())
-    #         logging.info("Request sent, awaiting response...")
-
-    #         response = self._receive_response()
-    #         if response:
-    #             self._parse_multipart_response(response)
-                
-    #     except Exception as e:
-    #         logging.error(f"Error communicating with server: {e}")
-    #         traceback.print_exc()
     def _communicate_with_server(self) -> None:
         """Communicate with server after establishing connection"""
+        if self.secure_sock is None:
+            logging.error("Secure socket is not initialized.")
+            return
         try:
             # Step 1: Send initial GET request
             request = (
@@ -154,20 +129,19 @@ class CTFClient:
                 f"Host: {ServerConfig.HOSTNAME}\r\n"
                 f"\r\n"
             )
-            self.secure_sock.sendall(request.encode())
+            self.secure_sock.sendall(request.encode())  # type: ignore[attr-defined]
             logging.info("Client: Initial request sent, awaiting response...")
 
             # Step 2: Receive initial response (server sends "What is your name?")
-            initial_response = self.secure_sock.recv(1024)
+            initial_response = self.secure_sock.recv(1024)  # type: ignore[attr-defined]
             logging.info(f"Initial response: {initial_response.decode('utf-8', errors='ignore')}")
-
 
             # Step 3: Send name starting with uppercase letter
             name = "Shay"  # Example name, should start with uppercase letter  
-            self.secure_sock.sendall(name.encode()) # Need to fix this to a valid name with MITM
+            self.secure_sock.sendall(name.encode())  # type: ignore[attr-defined]
 
             # Step 4: Receive repeated prompt (server sends the same message again)
-            repeated_response = self.secure_sock.recv(1024)
+            repeated_response = self.secure_sock.recv(1024)  # type: ignore[attr-defined]
             logging.info(f"Repeated prompt: {repeated_response.decode('utf-8', errors='ignore')}")
 
             # Step 5: Now receive all encrypted messages
@@ -181,12 +155,15 @@ class CTFClient:
 
     def _receive_response(self) -> Optional[bytes]:
         """Receive response data from SSL socket"""
+        if self.secure_sock is None:
+            logging.error("Secure socket is not initialized.")
+            return None
         response = b""
         total_received = 0
-        self.secure_sock.settimeout(ProtocolConfig.READ_TIMEOUT) # Set a timeout for recv
+        self.secure_sock.settimeout(ProtocolConfig.READ_TIMEOUT)  # type: ignore[attr-defined]
         try:
             while True:
-                chunk = self.secure_sock.recv(4096)
+                chunk = self.secure_sock.recv(4096)  # type: ignore[attr-defined]
                 if not chunk:
                     break  # Server closed the connection
                 response += chunk
@@ -231,7 +208,6 @@ class CTFClient:
 
 def main() -> None:
     """Main function handling certificate acquisition and server communication"""
-    import sys
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'

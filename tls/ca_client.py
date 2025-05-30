@@ -3,25 +3,11 @@ CA Certificate Client Module
 Handles certificate requests from the Certificate Authority
 """
 from typing import Optional, Tuple
-import traceback
 import logging
 import socket
 import ssl
-import time
-
-from OpenSSL import crypto
-import warnings
 import re
 
-# --- Suppress the specific RuntimeWarning ---
-warnings.filterwarnings(
-    action='ignore',
-    # Pass the regex pattern as a raw string, not a compiled object
-    message=r".*'communication\.tls\.ca_client'.*found in sys\.modules.*",
-    category=RuntimeWarning
-    # Note: re.IGNORECASE is not directly used here, but the pattern is likely sufficient.
-)
-# --- End warning suppression ---
 from .protocol import CAConfig, ProtocolConfig, BurpConfig, ClientConfig
 from .utils.client import setup_proxy_connection, create_client_ssl_context, padding_csr
 from .utils.ca import download_file
@@ -64,11 +50,17 @@ class CAClient:
             if self.use_proxy:
                 sock = socket.create_connection((BurpConfig.IP, BurpConfig.PORT))
                 setup_proxy_connection(sock, CAConfig.IP, CAConfig.PORT)
-                return self.context.wrap_socket(sock)
+                if self.context:
+                    return self.context.wrap_socket(sock)
+                logging.error("SSL context is not initialized.")
+                return None
             else:
                 sock = socket.create_connection((CAConfig.IP, CAConfig.PORT))
                 sock.settimeout(ProtocolConfig.TIMEOUT)
-                return self.context.wrap_socket(sock, server_hostname=CAConfig.HOSTNAME)
+                if self.context:
+                    return self.context.wrap_socket(sock, server_hostname=CAConfig.HOSTNAME)
+                logging.error("SSL context is not initialized.")
+                return None
         except Exception as e:
             logging.error(f"Failed to connect to CA: {e}")
             return None
@@ -115,27 +107,29 @@ class CAClient:
         """Handle communication with CA server"""
         if self._send_csr_request(client_csr):
             logging.info("Waiting for CA response...")
+            if self.secure_sock is None:
+                logging.error("No secure socket available for CA communication.")
+                return
             self.secure_sock.settimeout(ProtocolConfig.READ_TIMEOUT * 5)
-            
             # Wait for the server to send a prompt for the name
             prompt = self.secure_sock.recv(1024)
             if b"Please enter your name:" in prompt:
-                # Ask the user for their name
                 print("Please enter your name: ", end='', flush=True)
                 user_name = input().strip()
-                # Validate the name (basic check)
                 if not re.match(r"^[a-zA-Z0-9_]+$", user_name):
                     logging.error("Invalid name format. Only alphanumeric characters and underscores are allowed.")
                     return
                 self.secure_sock.sendall(user_name.encode() + b"\n")
                 logging.info(f"Sent name: {user_name}")
-            
             if self._get_signed_certificate():
                 logging.info("Certificate obtained successfully")
 
     def _send_csr_request(self, csr: bytes) -> bool:
         """Send CSR request to CA server"""
         try:
+            if self.secure_sock is None:
+                logging.error("No secure socket available to send CSR request.")
+                return False
             padding = padding_csr(len(csr))  # Ensure padding is correct
             http_request = (
                 f"POST /sign_csr HTTP/1.1\r\n"
@@ -143,27 +137,28 @@ class CAClient:
                 f"Content-Length: {len(csr) + len(padding)}\r\n"  # Important to include padding length
                 f"Content-Type: application/x-pem-file\r\n\r\n"
             ).encode() + csr + padding
-
             self.secure_sock.sendall(http_request)
             #logging.info("CSR sent successfully")
             return True
-        except Exception as e:
+        except Exception:
             #logging.error(f"Error sending CSR request: {e}")
             return False
-    
+
     def _get_signed_certificate(self) -> bool:
         """Receive the signed certificate from the CA server, parse HTTP, and save it."""
         try:
+            if self.secure_sock is None:
+                logging.error("No secure socket available to receive certificate.")
+                return False
             response = b""
             # Set a reasonable timeout for reading the response
             self.secure_sock.settimeout(ProtocolConfig.READ_TIMEOUT * 2)
             while True:
-                chunk = self.secure_sock.recv(8192) # Read larger chunks
+                chunk = self.secure_sock.recv(8192)
                 if not chunk:
                     break # Connection closed by server/proxy
                 response += chunk
             self.secure_sock.settimeout(None) # Reset timeout
-
             if not response:
                 logging.error("No data received from CA/Proxy for signed certificate")
                 return False
