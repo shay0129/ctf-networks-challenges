@@ -9,15 +9,12 @@ import os
 
 import base64
 
-from ..protocol import SSLConfig
 from ..utils.image_data import EMBEDDED_IMAGE_DATA
 from ..utils.audio_data import EMBEDDED_AUDIO_DATA_b64
 
 IMAGE_PATH: Final[str] = "C:/Users/Public/Open-Me.png"
 SEPARATOR: Final[bytes] = b"-----ENIGMA_CONFIG_START-----"
 SEPARATOR_END: Final[bytes] = b"-----ENIGMA_CONFIG_END-----"
-
-
 
 class EnigmaChallenge:
     def __init__(self):
@@ -90,14 +87,3 @@ class EnigmaChallenge:
         except Exception as e:
             logging.error(f"Failed to hide key in image: {e}")
             raise
-
-    def print_encryption_key(self) -> None:
-        """Log the encryption key"""
-        try:
-            encryption_key = getattr(SSLConfig, "ENCRYPTION_KEY", None)
-            if encryption_key:
-                logging.info(f"Use the key: {encryption_key}")
-            else:
-                logging.warning("ENCRYPTION_KEY is not set in SSLConfig")
-        except Exception as e:
-            logging.error(f"Failed to retrieve ENCRYPTION_KEY: {e}")

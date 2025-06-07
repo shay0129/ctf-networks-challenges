@@ -12,14 +12,15 @@ import time
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Show available interfaces for reference
-logging.info("Available interfaces:")
+# Show available interfaces for reference (uncomment 'show_interfaces()' for details)
+#logging.info("Available interfaces:")
 #show_interfaces()
 
 # Define the interface to use for sending packets
-# conf.iface = dev_from_index(1)  # Removed: not portable and causes errors
+# The previous method 'dev_from_index(1)' was removed as it's not portable and can cause errors.
 
-# Method 2: Select interface by name (works on most systems)
+# Select interface by name (works reliably on most systems).
+# This code specifically looks for the loopback interface (e.g., 'lo' on Linux, 'Loopback' on Windows/macOS).
 for iface_name, iface_data in conf.ifaces.items():
     if str(iface_name) == "lo" or "Loopback" in str(iface_data):
         conf.iface = iface_name
@@ -32,8 +33,10 @@ else:
 # Define the target IP address
 target_ip = "127.0.0.1"
 
-# Define a special ping type that the server can recognize
-# We will use a special ID value
+# IMPORTANT: ICMP operates at Layer 3 (Network Layer).
+# We are sending packets to the server's network interface (IP address),
+# not to a specific Layer 4 (Transport Layer) socket/port that the server might have open for other applications.
+# Ping doesn't use TCP/UDP ports.
 CUSTOM_ICMP_ID = 0x1337  # Unique value to identify our pings
 
 def send_icmp_packets():
@@ -46,7 +49,9 @@ def send_icmp_packets():
         data = b"A" * size
         
         # Create an ICMP packet with a special ID
-        icmp_request = IP(dst=target_ip) / ICMP(id=CUSTOM_ICMP_ID, seq=i+1) / data
+        # Scapy handles low-level details (instead of struct.pack) like checksums, header lengths, and byte order automatically.
+        icmp_request = IP(dst=target_ip) / \
+                    ICMP(id=CUSTOM_ICMP_ID, seq=i+1) / data
         
         logging.info(f"Sending ICMP packet #{i+1} with size {size} bytes to {target_ip}")
         
@@ -60,12 +65,15 @@ def send_icmp_packets():
                 logging.info(f"Received response from {response.src} but with different ID")
         else:
             logging.warning(f"No response received for packet #{i+1}")
-        
-        # To meet the server's timing requirements (9-11 seconds), wait a bit between packets
+          # To meet the server's timing requirements (9-11 seconds), wait a bit between packets
         if i < len(sizes) - 1:
             wait_time = 2.5  # About 2 seconds between each packet
             logging.info(f"Waiting {wait_time} seconds before next packet...")
             time.sleep(wait_time)
 
-if __name__ == "__main__":
+def main() -> None:
+    """Main entry point for ping player script."""
     send_icmp_packets()
+
+if __name__ == "__main__":
+    main()

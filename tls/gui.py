@@ -1,3 +1,4 @@
+# type: ignore[attr-defined]
 """
 Drone Command & Control Interface GUI
 This GUI is designed to control the drone's command and control interface, including starting/stopping the server, connecting/disconnecting clients, and managing the Certificate Authority (CA).
@@ -40,9 +41,10 @@ def stream_output(pipe: io.TextIOWrapper, queue: queue.Queue[Any], source: str):
 class CTFGui:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
-        self.root.title("Drone Command & Control Interface")
-        self.root.geometry("800x650")
-        self.root.configure(bg="#2E2E2E")
+        self.root.title("🚁 Operation BLACKBIRD - Drone Command & Control Interface")
+        self.root.geometry("1000x750")
+        self.root.configure(bg="#1a1a1a")
+        self.root.resizable(True, True)  # Allow resizing for better user experience
 
         self.server: Optional[CTFServer] = None # Initialize later after creating queues
         self.client_process = None
@@ -81,114 +83,395 @@ class CTFGui:
         context_menu = Menu(widget, tearoff=0)
         context_menu.add_command(label="Copy", command=lambda: self._copy_text(widget))
 
-        def show_menu(event: tk.Event) -> None:  # type: ignore[name-defined]
-            context_menu.tk_popup(event.x_root, event.y_root)  # type: ignore[attr-defined]
+        def show_menu(event: tk.Event) -> None:
+            context_menu.tk_popup(event.x_root, event.y_root)
 
-        widget.bind("<Button-3>", show_menu)  # type: ignore
+        widget.bind("<Button-3>", show_menu)
 
     def _copy_text(self, widget: tk.Text) -> None:
         try:
-            if widget.tag_ranges(tk.SEL):  # type: ignore[attr-defined]
-                selected_text = widget.get(tk.SEL_FIRST, tk.SEL_LAST)  # type: ignore[attr-defined]
-                self.root.clipboard_clear()  # type: ignore[attr-defined]
-                self.root.clipboard_append(selected_text)  # type: ignore[attr-defined]
-                logging.debug("Text copied to clipboard.")
-        except tk.TclError:
-            logging.debug("No text selected to copy.")
+            if widget.tag_ranges(tk.SEL):
+                selected_text = widget.get(tk.SEL_FIRST, tk.SEL_LAST)
+                self.root.clipboard_clear()
+                self.root.clipboard_append(selected_text)
+                # logging.debug("Text copied to clipboard.")        except tk.TclError:
+            # logging.debug("No text selected to copy.")
+            pass
         except Exception as e:
             logging.error(f"Error copying text: {e}")
-
+    
     def create_widgets(self) -> None:
-        self.root.configure(bg="#2E2E2E")
+        self.root.configure(bg="#1a1a1a")
         try:
-            self.root.iconbitmap("documents/drone.ico")  # type: ignore[attr-defined]
+            self.root.iconbitmap("documents/drone.ico")
         except tk.TclError:
-            logging.warning("Icon file not found, continuing without icon")
-        self.root.resizable(False, False)  # type: ignore[attr-defined]
-        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)  # type: ignore[attr-defined]
+            # logging.warning("Icon file not found, continuing without icon")
+            pass
+        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
+
+        # Create main container with padding
+        main_container = tk.Frame(self.root, bg="#1a1a1a")
+        main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+        # --- Mission Status Header ---
+        header_frame = tk.Frame(main_container, bg="#1a1a1a")
+        header_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        mission_label = tk.Label(
+            header_frame, 
+            text="🎯 MISSION STATUS: Operation BLACKBIRD INTERCEPT", 
+            fg="#FF6B35", 
+            bg="#1a1a1a", 
+            font=("Consolas", 14, "bold")
+        )
+        mission_label.pack()
+        
+        status_label = tk.Label(
+            header_frame, 
+            text="📡 Drone C&C Server | 🔐 Certificate Authority | 🤖 Bot Management", 
+            fg="#A0A0A0", 
+            bg="#1a1a1a", 
+            font=("Consolas", 10)
+        )
+        status_label.pack()
 
         # --- "Drone Core" Frame (Server Control) ---
-        server_frame = LabelFrame(self.root, text="Drone Core (Server Control)", fg="#FF4500", bg="#333333", font=("Consolas", 10))
-        server_frame.pack(pady=10, padx=10, fill=tk.X)
+        server_frame = LabelFrame(
+            main_container, 
+            text="🚁 Drone Core (Server Control)", 
+            fg="#FF6B35", 
+            bg="#2a2a2a", 
+            font=("Consolas", 11, "bold"),
+            relief=tk.RIDGE,
+            bd=2
+        )
+        server_frame.pack(pady=10, fill=tk.X)        # Button frame for better organization
+        button_frame = tk.Frame(server_frame, bg="#2a2a2a")
+        button_frame.pack(fill=tk.X, padx=5, pady=5)
 
         # Initialize button states correctly
-        self.start_server_button = tk.Button(server_frame, text="Initialize Drone Core", command=self._start_server_thread, bg="#444444", fg="#EEEEEE", font=("Consolas", 9), state=tk.NORMAL)
+        self.start_server_button = tk.Button(
+            button_frame, 
+            text="🚀 Initialize Drone Core", 
+            command=self._start_server_thread, 
+            bg="#4a4a4a", 
+            fg="#00FF7F", 
+            font=("Consolas", 10, "bold"), 
+            state=tk.NORMAL,
+            relief=tk.RAISED,
+            bd=2,
+            activebackground="#5a5a5a",
+            activeforeground="#00FF7F"
+        )
         self.start_server_button.pack(side=tk.LEFT, padx=5, pady=5)
 
-        self.stop_server_button = tk.Button(server_frame, text="Terminate Drone Core", command=self.stop_server, bg="#444444", fg="#EEEEEE", font=("Consolas", 9), state=tk.DISABLED)
+        self.stop_server_button = tk.Button(
+            button_frame, 
+            text="🛑 Terminate Drone Core", 
+            command=self.stop_server, 
+            bg="#4a4a4a", 
+            fg="#FF6B6B", 
+            font=("Consolas", 10, "bold"), 
+            state=tk.DISABLED,
+            relief=tk.RAISED,
+            bd=2,
+            activebackground="#5a5a5a",
+            activeforeground="#FF6B6B"
+        )
         self.stop_server_button.pack(side=tk.LEFT, padx=5, pady=5)
 
-        self.start_ca_button = tk.Button(server_frame, text="Deploy Certificate Authority", command=self._start_ca_process, bg="#444444", fg="#EEEEEE", font=("Consolas", 9), state=tk.NORMAL)
+        self.start_ca_button = tk.Button(
+            button_frame, 
+            text="🔐 Deploy Certificate Authority", 
+            command=self._start_ca_process, 
+            bg="#4a4a4a", 
+            fg="#FFD93D", 
+            font=("Consolas", 10, "bold"), 
+            state=tk.NORMAL,
+            relief=tk.RAISED,
+            bd=2,
+            activebackground="#5a5a5a",
+            activeforeground="#FFD93D"
+        )
         self.start_ca_button.pack(side=tk.LEFT, padx=5, pady=5)
 
-        self.stop_ca_button = tk.Button(server_frame, text="Halt Certificate Authority", command=self.stop_ca_process, bg="#444444", fg="#EEEEEE", font=("Consolas", 9), state=tk.DISABLED)
-        self.stop_ca_button.pack(side=tk.LEFT, padx=5, pady=5)
+        self.stop_ca_button = tk.Button(
+            button_frame, 
+            text="🔒 Halt Certificate Authority", 
+            command=self.stop_ca_process, 
+            bg="#4a4a4a", 
+            fg="#FF6B6B", 
+            font=("Consolas", 10, "bold"), 
+            state=tk.DISABLED,
+            relief=tk.RAISED,
+            bd=2,
+            activebackground="#5a5a5a",
+            activeforeground="#FF6B6B"
+        )
+        self.stop_ca_button.pack(side=tk.LEFT, padx=5, pady=5)        # Server log section
+        log_frame = tk.Frame(server_frame, bg="#2a2a2a")
+        log_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        self.server_log_label = tk.Label(server_frame, text="Drone Core Log:", fg="#EEEEEE", bg="#333333", font=("Consolas", 9))
-        self.server_log_label.pack(pady=(5, 0), padx=5, anchor=tk.W)
-        self.server_log_text = scrolledtext.ScrolledText(server_frame, wrap=tk.WORD, width=60, height=8, bg="#444444", fg="#EEEEEE", font=("Consolas", 9))
-        self.server_log_text.pack(pady=5, padx=5, fill=tk.X)
-        # Configure tags for log colors
-        self.server_log_text.tag_config('INFO', foreground='#EEEEEE') # Default
-        self.server_log_text.tag_config('DEBUG', foreground='cyan')
-        self.server_log_text.tag_config('WARNING', foreground='yellow')
-        self.server_log_text.tag_config('ERROR', foreground='red')
-        self.server_log_text.tag_config('CRITICAL', foreground='red', underline=True)
-        self.server_log_text.configure(state='disabled') # Start disabled
-
-        # --- "Connected Collaborators" Frame (Client Control) ---
-        client_frame = LabelFrame(self.root, text="Connected Collaborators (Bots)", fg="#00FF7F", bg="#333333", font=("Consolas", 10))
-        client_frame.pack(pady=10, padx=10, fill=tk.BOTH, expand=True) # Changed fill/expand
+        self.server_log_label = tk.Label(
+            log_frame, 
+            text="📊 Drone Core Activity Log:", 
+            fg="#A0A0A0", 
+            bg="#2a2a2a", 
+            font=("Consolas", 10, "bold")
+        )
+        self.server_log_label.pack(pady=(5, 2), anchor=tk.W)
+        
+        self.server_log_text = scrolledtext.ScrolledText(
+            log_frame, 
+            wrap=tk.WORD, 
+            width=80, 
+            height=10, 
+            bg="#0d1117", 
+            fg="#c9d1d9", 
+            font=("Consolas", 9),
+            insertbackground="#c9d1d9",
+            selectbackground="#264f78",
+            relief=tk.SUNKEN,
+            bd=2
+        )
+        self.server_log_text.pack(fill=tk.BOTH, expand=True)
+        
+        # Configure tags for log colors (GitHub Dark theme inspired)
+        self.server_log_text.tag_config('INFO', foreground='#7c3aed')      # Purple
+        self.server_log_text.tag_config('DEBUG', foreground='#06b6d4')     # Cyan  
+        self.server_log_text.tag_config('WARNING', foreground='#f59e0b')   # Amber
+        self.server_log_text.tag_config('ERROR', foreground='#ef4444')     # Red
+        self.server_log_text.tag_config('CRITICAL', foreground='#dc2626', underline=True)  # Dark red
+        self.server_log_text.configure(state='disabled')        # --- "Connected Collaborators" Frame (Client Control) ---
+        client_frame = LabelFrame(
+            main_container, 
+            text="🤖 Connected Collaborators (Bot Network)", 
+            fg="#00FF7F", 
+            bg="#2a2a2a", 
+            font=("Consolas", 11, "bold"),
+            relief=tk.RIDGE,
+            bd=2
+        )
+        client_frame.pack(pady=10, fill=tk.BOTH, expand=True)
 
         # Sub-frame for buttons and proxy inputs
-        client_control_frame = tk.Frame(client_frame, bg="#333333")
+        client_control_frame = tk.Frame(client_frame, bg="#2a2a2a")
         client_control_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
 
-        self.connect_collaborator_button = tk.Button(client_control_frame, text="Connect Collaborator (Server Client)", command=self._start_server_client_process_with_proxy, bg="#444444", fg="#EEEEEE", font=("Consolas", 9), state=tk.NORMAL)
+        self.connect_collaborator_button = tk.Button(
+            client_control_frame, 
+            text="🔗 Connect Collaborator (Server Client)", 
+            command=self._start_server_client_process_with_proxy, 
+            bg="#4a4a4a", 
+            fg="#00FF7F", 
+            font=("Consolas", 10, "bold"), 
+            state=tk.NORMAL,
+            relief=tk.RAISED,
+            bd=2,
+            activebackground="#5a5a5a",
+            activeforeground="#00FF7F"
+        )
         self.connect_collaborator_button.pack(side=tk.LEFT, padx=5)
 
-        self.connect_ca_collaborator_button = tk.Button(client_control_frame, text="Connect CA Collaborator", command=self.start_ca_client_with_proxy, bg="#444444", fg="#EEEEEE", font=("Consolas", 9), state=tk.NORMAL)
+        self.connect_ca_collaborator_button = tk.Button(
+            client_control_frame, 
+            text="🔐 Connect CA Collaborator", 
+            command=self.start_ca_client_with_proxy, 
+            bg="#4a4a4a", 
+            fg="#FFD93D", 
+            font=("Consolas", 10, "bold"), 
+            state=tk.NORMAL,
+            relief=tk.RAISED,
+            bd=2,
+            activebackground="#5a5a5a",
+            activeforeground="#FFD93D"
+        )
         self.connect_ca_collaborator_button.pack(side=tk.LEFT, padx=5)
 
-        self.disconnect_collaborator_button = tk.Button(client_control_frame, text="Disconnect Client Process", command=self._stop_client_process, bg="#444444", fg="#EEEEEE", font=("Consolas", 9), state=tk.DISABLED)
-        self.disconnect_collaborator_button.pack(side=tk.LEFT, padx=5)
-
-        # --- INPUT ENTRY ---
-        self.client_input_label = tk.Label(client_control_frame, text="Send Command:", fg="#EEEEEE", bg="#333333", font=("Consolas", 9))
-        self.client_input_label.pack(side=tk.LEFT, padx=(10, 5))
-        # Use fill=tk.X and expand=True without fixed width
-        self.client_input = tk.Entry(client_control_frame, bg="#555555", fg="#EEEEEE", insertbackground="#EEEEEE", font=("Consolas", 9))
-        self.client_input.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5)) # Added padding
-        self.client_input.bind("<Return>", self._send_client_input_to_process)  # type: ignore
-        # --- END OF ADDED INPUT ENTRY ---
-
-        # Frame to hold listbox and output area side-by-side
-        client_display_frame = tk.Frame(client_frame, bg="#333333")
+        self.disconnect_collaborator_button = tk.Button(
+            client_control_frame, 
+            text="⚠️ Disconnect Client Process", 
+            command=self._stop_client_process, 
+            bg="#4a4a4a", 
+            fg="#FF6B6B", 
+            font=("Consolas", 10, "bold"), 
+            state=tk.DISABLED,
+            relief=tk.RAISED,
+            bd=2,
+            activebackground="#5a5a5a",
+            activeforeground="#FF6B6B"
+        )
+        self.disconnect_collaborator_button.pack(side=tk.LEFT, padx=5)        # --- INPUT ENTRY ---
+        input_frame = tk.Frame(client_control_frame, bg="#2a2a2a")
+        input_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
+        
+        self.client_input_label = tk.Label(
+            input_frame, 
+            text="📡 Send Command:", 
+            fg="#A0A0A0", 
+            bg="#2a2a2a", 
+            font=("Consolas", 10, "bold")
+        )
+        self.client_input_label.pack(side=tk.LEFT, padx=(0, 5))
+        
+        self.client_input = tk.Entry(
+            input_frame, 
+            bg="#0d1117", 
+            fg="#c9d1d9", 
+            insertbackground="#c9d1d9", 
+            font=("Consolas", 10),
+            relief=tk.SUNKEN,
+            bd=2,
+            selectbackground="#264f78"
+        )
+        self.client_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.client_input.bind("<Return>", self._send_client_input_to_process)
+        # --- END OF ADDED INPUT ENTRY ---        # Frame to hold listbox and output area side-by-side
+        client_display_frame = tk.Frame(client_frame, bg="#2a2a2a")
         client_display_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        # Listbox for connected clients
-        self.client_list_label = tk.Label(client_display_frame, text="Active Bots:", fg="#EEEEEE", bg="#333333", font=("Consolas", 9))
-        self.client_list_label.pack(side=tk.LEFT, anchor=tk.NW, padx=(0,5))
-        self.client_listbox = tk.Listbox(client_display_frame, bg="#444444", fg="#EEEEEE", font=("Consolas", 9), width=35, height=10) # Adjusted width
-        self.client_listbox.pack(side=tk.LEFT, fill=tk.Y, padx=5)
-        # No TODO needed here anymore, handled by _process_queues
+        # Left panel for active bots
+        left_panel = tk.Frame(client_display_frame, bg="#2a2a2a")
+        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
 
-        # ScrolledText for client output
-        self.client_output_label = tk.Label(client_display_frame, text="Bot Output:", fg="#EEEEEE", bg="#333333", font=("Consolas", 9))
-        self.client_output_label.pack(side=tk.LEFT, anchor=tk.NW, padx=(10,5))
-        self.client_output_text = scrolledtext.ScrolledText(client_display_frame, wrap=tk.WORD, bg="#444444", fg="#EEEEEE", font=("Consolas", 9), height=10)
-        self.client_output_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.client_list_label = tk.Label(
+            left_panel, 
+            text="🤖 Active Bots:", 
+            fg="#A0A0A0", 
+            bg="#2a2a2a", 
+            font=("Consolas", 10, "bold")
+        )
+        self.client_list_label.pack(anchor=tk.W, pady=(0, 5))
+        
+        # Listbox with scrollbar
+        listbox_frame = tk.Frame(left_panel, bg="#2a2a2a")
+        listbox_frame.pack(fill=tk.Y)
+        
+        self.client_listbox = tk.Listbox(
+            listbox_frame, 
+            bg="#0d1117", 
+            fg="#c9d1d9", 
+            font=("Consolas", 9), 
+            width=40, 
+            height=12,
+            selectbackground="#264f78",
+            selectforeground="#ffffff",
+            relief=tk.SUNKEN,
+            bd=2
+        )
+        self.client_listbox.pack(side=tk.LEFT, fill=tk.Y)
+        
+        # Scrollbar for listbox
+        listbox_scrollbar = tk.Scrollbar(listbox_frame, orient=tk.VERTICAL)
+        listbox_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.client_listbox.config(yscrollcommand=listbox_scrollbar.set)
+        listbox_scrollbar.config(command=self.client_listbox.yview)
+
+        # Right panel for output
+        right_panel = tk.Frame(client_display_frame, bg="#2a2a2a")
+        right_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.client_output_label = tk.Label(
+            right_panel, 
+            text="📊 Bot Output & Communications:", 
+            fg="#A0A0A0", 
+            bg="#2a2a2a", 
+            font=("Consolas", 10, "bold")
+        )
+        self.client_output_label.pack(anchor=tk.W, pady=(0, 5))
+        
+        self.client_output_text = scrolledtext.ScrolledText(
+            right_panel, 
+            wrap=tk.WORD, 
+            bg="#0d1117", 
+            fg="#c9d1d9", 
+            font=("Consolas", 9), 
+            height=12,
+            insertbackground="#c9d1d9",
+            selectbackground="#264f78",            relief=tk.SUNKEN,
+            bd=2
+        )
+        self.client_output_text.pack(fill=tk.BOTH, expand=True)
         self.client_output_text.configure(state='disabled')
-        # No TODO needed here anymore, handled by _process_queues
 
-    def _ask_proxy_preference(self) -> bool:
-        """Asks the user for their Burp proxy preference."""
-        answer = simpledialog.askstring("Proxy Preference", "Use Burp proxy? (y/n):", parent=self.root)
-        return answer.lower().startswith('y') if answer is not None else False
+        # --- Status Bar ---
+        status_frame = tk.Frame(main_container, bg="#1a1a1a", relief=tk.SUNKEN, bd=1)
+        status_frame.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+        
+        self.status_label = tk.Label(
+            status_frame, 
+            text="🔴 Status: Drone Core Offline | CA: Offline | Bots: 0 Connected", 
+            fg="#A0A0A0", 
+            bg="#1a1a1a", 
+            font=("Consolas", 9),
+            anchor=tk.W
+        )
+        self.status_label.pack(side=tk.LEFT, padx=5, pady=2)
+        
+        # Mission timer
+        self.mission_time_label = tk.Label(
+            status_frame, 
+            text="⏱️ Mission Time: 00:00:00", 
+            fg="#A0A0A0", 
+            bg="#1a1a1a", 
+            font=("Consolas", 9)
+        )
+        self.mission_time_label.pack(side=tk.RIGHT, padx=5, pady=2)
+        
+        # Initialize mission timer
+        import time
+        self.mission_start_time = time.time()
+        self._update_mission_timer()
+
+        # Add keyboard shortcuts
+        self._setup_keyboard_shortcuts()
+
+    def _setup_keyboard_shortcuts(self) -> None:
+        """Setup keyboard shortcuts for common actions"""
+        # Ctrl+S: Start server
+        self.root.bind('<Control-s>', lambda e: self._start_server_thread() if self.start_server_button['state'] == tk.NORMAL else None)
+        
+        # Ctrl+T: Stop server  
+        self.root.bind('<Control-t>', lambda e: self.stop_server() if self.stop_server_button['state'] == tk.NORMAL else None)
+        
+        # Ctrl+C: Start CA
+        self.root.bind('<Control-c>', lambda e: self._start_ca_process() if self.start_ca_button['state'] == tk.NORMAL else None)
+        
+        # Ctrl+Q: Quit application
+        self.root.bind('<Control-q>', lambda e: self._on_closing())
+        
+        # F5: Refresh status
+        self.root.bind('<F5>', lambda e: self._update_status_bar())
+        
+        # Focus on input field with Ctrl+I
+        self.root.bind('<Control-i>', lambda e: self.client_input.focus_set())
+
+    def _show_help_dialog(self) -> None:
+        """Show keyboard shortcuts help dialog"""
+        from tkinter import messagebox
+        help_text = """
+🎯 Operation BLACKBIRD - Keyboard Shortcuts:
+
+Ctrl+S - Start Drone Core
+Ctrl+T - Stop Drone Core  
+Ctrl+C - Start Certificate Authority
+Ctrl+Q - Quit Application
+Ctrl+I - Focus Command Input
+F5 - Refresh Status
+
+🚁 Mission Phases:
+1. ICMP Challenge - Network packet timing
+2. CA Challenge - Certificate infiltration 
+3. Enigma Challenge - Cryptographic analysis
+
+📡 Use the command input to interact with bots
+🤖 Monitor bot activity in the output panel
+        """
+        messagebox.showinfo("Operation BLACKBIRD - Help", help_text)
 
     def _start_server_client_process_with_proxy(self) -> None:
         use_proxy = self._ask_proxy_preference()
-        self._start_client_process("client.py", "Collaborator", use_proxy)
+        self._start_client_process("server_client.py", "Collaborator", use_proxy)
 
     def start_ca_client_with_proxy(self) -> None:
         use_proxy = self._ask_proxy_preference()
@@ -200,19 +483,20 @@ class CTFGui:
             try:
                 # Reset server running flag before starting
                 if self.server is not None:
-                    self.server.running = True  # type: ignore[attr-defined]
-                    self.server_thread = threading.Thread(target=self.server.run)  # type: ignore[attr-defined]
+                    self.server.running = True
+                    self.server_thread = threading.Thread(target=self.server.run)
                     self.server_thread.daemon = True
-                    self.server_thread.start()
-                # Update button states AFTER successful start
+                    self.server_thread.start()                # Update button states AFTER successful start
                 self.start_server_button.config(state=tk.DISABLED)
                 self.stop_server_button.config(state=tk.NORMAL)
+                self._update_status_bar()
             except threading.ThreadError as e:
                 logging.error(f"Error starting server thread: {e}")
                 self.start_server_button.config(state=tk.NORMAL)
                 self.stop_server_button.config(state=tk.DISABLED)
         else:
-            logging.warning("Drone Core (Server) is already running.")
+            # logging.warning("Drone Core (Server) is already running.")
+            pass
         pass
 
     def stop_server(self, log_stopping: bool = True) -> None:
@@ -222,26 +506,33 @@ class CTFGui:
                 if log_stopping:
                     logging.info("Attempting to terminate Drone Core...")
                 if self.server is not None:
-                    self.server.running = False  # type: ignore[attr-defined]
+                    self.server.running = False
                 self.server_thread.join(timeout=1)
                 self._clear_all_logs()
+                self._clear_client_listbox()  # Clear Active Bots list
                 self.start_server_button.config(state=tk.NORMAL)
                 self.stop_server_button.config(state=tk.DISABLED)
                 self.server_thread = None
+                self._update_status_bar()
             except Exception as e:
                 if log_stopping:
                     logging.error(f"Error stopping server: {e}")
                 self._clear_all_logs()
+                self._clear_client_listbox()  # Clear Active Bots list
                 self.start_server_button.config(state=tk.NORMAL)
                 self.stop_server_button.config(state=tk.DISABLED)
                 self.server_thread = None
+                self._update_status_bar()
         else:
             if log_stopping:
-                logging.warning("Drone Core (Server) is not running or already stopped.")
+                # logging.warning("Drone Core (Server) is not running or already stopped.")
+                pass
             self.start_server_button.config(state=tk.NORMAL)
             self.stop_server_button.config(state=tk.DISABLED)
             self.server_thread = None
             self._clear_all_logs()
+            self._clear_client_listbox()  # Clear Active Bots list
+            self._update_status_bar()
 
     def _start_ca_process(self) -> None:
         # Check if process exists AND is running (poll() is None means running)
@@ -261,12 +552,11 @@ class CTFGui:
                 )
                 # Start threads to read output
                 threading.Thread(target=stream_output, args=(self.ca_process.stdout, self.subprocess_output_queue, "CA_OUT"), daemon=True).start()
-                threading.Thread(target=stream_output, args=(self.ca_process.stderr, self.subprocess_output_queue, "CA_ERR"), daemon=True).start()
-
-                # Update button states AFTER successful start
+                threading.Thread(target=stream_output, args=(self.ca_process.stderr, self.subprocess_output_queue, "CA_ERR"), daemon=True).start()                # Update button states AFTER successful start
                 self.start_ca_button.config(state=tk.DISABLED)
                 self.stop_ca_button.config(state=tk.NORMAL)
-                logging.info("Certificate Authority deployment initiated.")
+                self._update_status_bar()
+                # logging.info("Certificate Authority deployment initiated.")
             except FileNotFoundError:
                 # This might indicate the module path is wrong or python isn't in PATH
                 logging.error("Error: Could not find Python executable or specified module.")
@@ -277,8 +567,8 @@ class CTFGui:
                 self.start_ca_button.config(state=tk.NORMAL)
                 self.stop_ca_button.config(state=tk.DISABLED)
         else:
-            logging.warning("Certificate Authority is already deployed and running.")
-
+            # logging.warning("Certificate Authority is already deployed and running.")
+            pass
         # Placeholder for any additional setup or checks
         pass
 
@@ -287,39 +577,46 @@ class CTFGui:
         if self.ca_process and self.ca_process.poll() is None:
             try:
                 if log_stopping:
-                    logging.info("Attempting to halt Certificate Authority...")
+                    # logging.info("Attempting to halt Certificate Authority...")
+                    pass
                 self.ca_process.terminate()
                 self.ca_process.wait(timeout=1) # Wait for graceful termination
                 if log_stopping:
-                    logging.info("Certificate Authority halted.")
+                    # logging.info("Certificate Authority halted.")
+                    pass
             except subprocess.TimeoutExpired:
                 if log_stopping:
-                    logging.warning("Certificate Authority did not terminate gracefully, killing...")
+                    # logging.warning("Certificate Authority did not terminate gracefully, killing...")
+                    pass
                 self.ca_process.kill()
                 self.ca_process.wait() # Wait after kill
                 if log_stopping:
-                    logging.info("Certificate Authority killed.")
+                    # logging.info("Certificate Authority killed.")
+                    pass
             except Exception as e:
                 if log_stopping:
                     logging.error(f"Error halting Certificate Authority: {e}")
             finally:
-                # Always update button states and reset process variable after attempt
                 self.start_ca_button.config(state=tk.NORMAL)
                 self.stop_ca_button.config(state=tk.DISABLED)
                 self.ca_process = None # Reset process variable
+                self._clear_all_logs()  # Clear logs when CA server stops
+                self._clear_client_listbox()  # Clear Active Bots list
         else:
             if log_stopping:
-                logging.warning("Certificate Authority is not active or already stopped.")
-            # Ensure buttons reflect the stopped state even if called again
+                # logging.warning("Certificate Authority is not active or already stopped.")
+                pass
             self.start_ca_button.config(state=tk.NORMAL)
             self.stop_ca_button.config(state=tk.DISABLED)
             self.ca_process = None # Ensure reset
+            self._clear_all_logs()  # Clear logs when CA server stops
+            self._clear_client_listbox()  # Clear Active Bots list
 
     def _start_client_process(self, script_name: str, client_type: str, use_proxy: bool) -> None:
         module_path = f"tls.{script_name.replace('.py', '')}"
         if self.client_process is None or self.client_process.poll() is not None:
             try:
-                logging.info(f"Starting {client_type} ({script_name}) with proxy: {use_proxy}")
+                # logging.info(f"Starting {client_type} ({script_name}) with proxy: {use_proxy}")
                 # Use -u for unbuffered output
                 command = [sys.executable, "-u", "-m", module_path]
                 env = os.environ.copy()
@@ -342,11 +639,11 @@ class CTFGui:
                     proxy_answer = 'y\n' if use_proxy else 'n\n'
                     self.client_process.stdin.write(proxy_answer)
                     self.client_process.stdin.flush()
-                    logging.info(f"Sent proxy preference '{proxy_answer.strip()}' to {client_type}")
+                    # logging.info(f"Sent proxy preference '{proxy_answer.strip()}' to {client_type}")
                 self.connect_collaborator_button.config(state=tk.DISABLED)
                 self.connect_ca_collaborator_button.config(state=tk.DISABLED)
                 self.disconnect_collaborator_button.config(state=tk.NORMAL)
-                logging.info(f"{client_type} subprocess initiated.")
+                # logging.info(f"{client_type} subprocess initiated.")
             except FileNotFoundError:
                 logging.error(f"Error: Could not find Python executable or module '{module_path}'.")
                 self.connect_collaborator_button.config(state=tk.NORMAL)
@@ -358,29 +655,46 @@ class CTFGui:
                 self.connect_ca_collaborator_button.config(state=tk.NORMAL)
                 self.disconnect_collaborator_button.config(state=tk.DISABLED)
         else:
-            logging.warning(f"{client_type} subprocess is already running.")
+            # logging.warning(f"{client_type} subprocess is already running.")
+            pass
 
     def _stop_client_process(self, log_stopping: bool = True) -> None:
         if self.client_process and self.client_process.poll() is None:
             try:
                 if log_stopping:
-                    logging.info("Attempting to terminate client process...")
+                    # logging.info("Attempting to terminate client process...")
+                    pass
                 if self.client_process.stdin:
                     try:
                         self.client_process.stdin.close()
                     except Exception:
                         pass
-                self.client_process.terminate()
-                self.client_process.wait(timeout=1)
+                # Kill client process and all children if still alive
+                if self.client_process is not None and self.client_process.poll() is None:
+                    try:
+                        try:
+                            import psutil
+                            parent = psutil.Process(self.client_process.pid)
+                            for child in parent.children(recursive=True):
+                                child.kill()
+                            parent.kill()
+                        except ImportError:
+                            self.client_process.kill()
+                        self.client_process.wait(timeout=1)
+                    except Exception:
+                        pass
                 if log_stopping:
-                    logging.info("Client process terminated.")
+                    # logging.info("Client process terminated.")
+                    pass
             except subprocess.TimeoutExpired:
                 if log_stopping:
-                    logging.warning("Client process did not terminate gracefully, killing...")
+                    # logging.warning("Client process did not terminate gracefully, killing...")
+                    pass
                 self.client_process.kill()
                 self.client_process.wait()
                 if log_stopping:
-                    logging.info("Client process killed.")
+                    # logging.info("Client process killed.")
+                    pass
             except Exception as e:
                 if log_stopping:
                     logging.error(f"Error stopping client process: {e}")
@@ -393,7 +707,8 @@ class CTFGui:
                 self.ca_client_stdin = None
         else:
             if log_stopping:
-                logging.warning("No client process is active or already stopped.")
+                # logging.warning("No client process is active or already stopped.")
+                pass
             self.connect_collaborator_button.config(state=tk.NORMAL)
             self.connect_ca_collaborator_button.config(state=tk.NORMAL)
             self.disconnect_collaborator_button.config(state=tk.DISABLED)
@@ -408,40 +723,43 @@ class CTFGui:
             self.client_process.stdin.write(command + '\n')
             self.client_process.stdin.flush()
             self.client_input.delete(0, tk.END)
-            logging.info(f"Sent command: '{command}' to client process.")
+            # logging.info(f"Sent command: '{command}' to client process.")
         elif not self.client_process or self.client_process.poll() is not None:
-            logging.warning("No active client process tosend command to.")
+            # logging.warning("No active client process tosend command to.")
+            pass
         else:
             logging.error("Client process stdin is not available.")
-
+    
     def _add_client_to_list(self, client_id: str) -> None:
-        current_items = list(self.client_listbox.get(0, tk.END))  # type: ignore[attr-defined]
+        current_items = list(self.client_listbox.get(0, tk.END))
         if client_id not in current_items:
-            self.client_listbox.insert(tk.END, client_id)  # type: ignore[attr-defined]
-            logging.info(f"GUI: Bot {client_id} connected.")
-
+            self.client_listbox.insert(tk.END, client_id)
+            self._update_status_bar()
+            # logging.info(f"GUI: Bot {client_id} connected.")
+    
     def _remove_client_from_list(self, client_id: str) -> None:
         try:
-            items = list(self.client_listbox.get(0, tk.END))  # type: ignore[attr-defined]
+            items = list(self.client_listbox.get(0, tk.END))
             if client_id in items:
-                index = items.index(client_id)  # type: ignore
-                self.client_listbox.delete(index)  # type: ignore[attr-defined]
-                logging.info(f"GUI: Bot {client_id} disconnected.")
+                index = items.index(client_id)
+                self.client_listbox.delete(index)
+                self._update_status_bar()
+                # logging.info(f"GUI: Bot {client_id} disconnected.")
         except tk.TclError:
             pass
 
     def _display_client_output(self, source: str, message: str) -> None:
         try:
-            self.client_output_text.configure(state='normal')  # type: ignore[attr-defined]
+            self.client_output_text.configure(state='normal')
             if source not in self.output_lines:
                 self.output_lines[source] = ""
             self.output_lines[source] += message
             if '\n' in self.output_lines[source]:
                 line, rest = self.output_lines[source].split('\n', 1)
-                self.client_output_text.insert(tk.END, f"[{source}]: {line}\n")  # type: ignore[attr-defined]
+                self.client_output_text.insert(tk.END, f"[{source}]: {line}\n")
                 self.output_lines[source] = rest
-            self.client_output_text.see(tk.END)  # type: ignore[attr-defined]
-            self.client_output_text.configure(state='disabled')  # type: ignore[attr-defined]
+            self.client_output_text.see(tk.END)
+            self.client_output_text.configure(state='disabled')
         except tk.TclError:
             pass
 
@@ -460,11 +778,20 @@ class CTFGui:
                     if client_id in self.output_lines:
                         self.output_lines[client_id] = ""
                         self._clear_client_output_display()
-
+                    # --- Disable disconnect button and reset process if no clients remain ---
+                    if self.client_process is not None and self.client_process.poll() is not None:
+                        self.disconnect_collaborator_button.config(state=tk.DISABLED)
+                        self.connect_collaborator_button.config(state=tk.NORMAL)
+                        self.connect_ca_collaborator_button.config(state=tk.NORMAL)
+                        self.client_process = None
+                        self.client_stdin = None
+                        # If no clients remain, clear the listbox
+                        if self.client_listbox.size() == 0:
+                            self._clear_client_listbox()
             # Process messages from the server to specific clients (if any)
             while not self.client_message_queue.empty():
                 client_id, message = self.client_message_queue.get_nowait()
-                self._display_client_output(client_id, message + '\n') # Add newline for server messages
+                self._display_client_output(client_id, message + '\n')
 
             # Accumulate per-source buffer and flush as chars arrive
             while not self.subprocess_output_queue.empty():
@@ -482,24 +809,20 @@ class CTFGui:
         except Exception as e:
             logging.error(f"GUI Error processing queue: {e}")
         finally:
-            self.root.after(100, self._process_queues)  # type: ignore[attr-defined]
+            self.root.after(100, self._process_queues)
 
     def _clear_all_logs(self) -> None:
         """Clear all log displays"""
         try:
             # Clear server log
-            self.server_log_text.configure(state='normal')  # type: ignore[attr-defined]
-            self.server_log_text.delete('1.0', tk.END)  # type: ignore[attr-defined]
-            self.server_log_text.configure(state='disabled')  # type: ignore[attr-defined]
-            
+            self.server_log_text.configure(state='normal')
+            self.server_log_text.delete('1.0', tk.END)
+            self.server_log_text.configure(state='disabled')
             # Clear client output
             self._clear_client_output_display()
-            
             # Reset output lines dictionary to prevent old data from appearing
             for key in list(self.output_lines.keys()):
                 self.output_lines[key] = ""
-            
-            logging.debug("All logs cleared")
         except tk.TclError:
             pass
         except Exception as e:
@@ -508,25 +831,112 @@ class CTFGui:
     def _clear_client_output_display(self) -> None:
         """Clear the client output text widget."""
         try:
-            self.client_output_text.configure(state='normal')  # type: ignore[attr-defined]
-            self.client_output_text.delete('1.0', tk.END)  # type: ignore[attr-defined]
-            self.client_output_text.configure(state='disabled')  # type: ignore[attr-defined]
+            self.client_output_text.configure(state='normal')
+            self.client_output_text.delete('1.0', tk.END)
+            self.client_output_text.configure(state='disabled')
+        except tk.TclError:
+            pass
+
+    def _clear_client_listbox(self) -> None:
+        """Clear the Active Bots listbox."""
+        try:
+            self.client_listbox.delete(0, tk.END)
         except tk.TclError:
             pass
 
     def _on_closing(self) -> None:
-        """Handles the event when the user clicks the 'X' button."""
-        logging.info("Close button clicked. Shutting down...")
-        # Attempt to stop all running components without excessive logging
+        """Handles the event when the user clicks the 'X' button. Ensures all subprocesses and threads are forcefully terminated."""
+        # Attempt graceful shutdown first
         self.stop_server(log_stopping=False)
         self.stop_ca_process(log_stopping=False)
         self._stop_client_process(log_stopping=False)
 
-        logging.info("Exiting application.")
-        # Cancel the scheduled queue check before destroying
-        # This requires storing the after_id, let's simplify for now
-        # and rely on root.destroy() cleaning things up.
-        self.root.destroy()  # type: ignore[attr-defined]
+        # --- Force kill any remaining subprocesses ---
+        import signal
+        # Kill CA process if still alive
+        if self.ca_process is not None and self.ca_process.poll() is None:
+            try:
+                self.ca_process.kill()
+                self.ca_process.wait(timeout=1)
+            except Exception:
+                pass
+            self.ca_process = None
+        # Kill client process if still alive
+        if self.client_process is not None and self.client_process.poll() is None:
+            try:
+                # Kill client process and all children if still alive
+                if self.client_process is not None and self.client_process.poll() is None:
+                    try:
+                        try:
+                            import psutil
+                            parent = psutil.Process(self.client_process.pid)
+                            for child in parent.children(recursive=True):
+                                child.kill()
+                            parent.kill()
+                        except ImportError:
+                            self.client_process.kill()
+                        self.client_process.wait(timeout=1)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            self.client_process = None
+        # Force kill server thread if still alive (Windows only: forcibly terminate process)
+        if self.server_thread is not None and self.server_thread.is_alive():
+            try:
+                import ctypes
+                tid = self.server_thread.ident
+                if tid is not None:
+                    res = ctypes.pythonapi.PyThreadState_SetAsyncExc(ctypes.c_long(tid), ctypes.py_object(SystemExit))
+            except Exception:
+                pass
+            self.server_thread = None
+        # Destroy GUI
+        self.root.destroy()
+
+    def _update_mission_timer(self) -> None:
+        """Update the mission timer display"""
+        try:
+            import time
+            elapsed = time.time() - self.mission_start_time
+            hours = int(elapsed // 3600)
+            minutes = int((elapsed % 3600) // 60)
+            seconds = int(elapsed % 60)
+            self.mission_time_label.config(text=f"⏱️ Mission Time: {hours:02d}:{minutes:02d}:{seconds:02d}")
+            self.root.after(1000, self._update_mission_timer)
+        except Exception:
+            pass
+
+    def _update_status_bar(self) -> None:
+        """Update the status bar with current system state"""
+        try:
+            # Check server status
+            server_status = "🟢 Online" if (self.server_thread and self.server_thread.is_alive()) else "🔴 Offline"
+            
+            # Check CA status  
+            ca_status = "🟢 Online" if (self.ca_process and self.ca_process.poll() is None) else "🔴 Offline"
+              # Count connected bots
+            bot_count = self.client_listbox.size()
+            
+            status_text = f"Drone Core: {server_status} | CA: {ca_status} | Bots: {bot_count} Connected"
+            self.status_label.config(text=status_text)
+        except Exception:
+            pass
+
+    def _ask_proxy_preference(self) -> bool:
+        """Prompt the user to choose whether to use a proxy connection."""
+        import tkinter.simpledialog
+        answer = tkinter.simpledialog.askstring(
+            "🔧 Operation BLACKBIRD - Proxy Configuration",
+            "Configure proxy tunnel for secure communications?\n\n" +
+            "📡 This will route traffic through your configured proxy\n" +
+            "🔒 Required for certain mission parameters\n\n" +
+            "Enter 'yes' to enable proxy tunnel (yes/no):",
+            parent=self.root
+        )
+        if answer and answer.strip().lower() in ("yes", "y"): 
+            return True
+        return False
 
 class GuiHandler(logging.Handler):
     def __init__(self, text_widget: ScrolledText) -> None:
@@ -553,9 +963,15 @@ class GuiHandler(logging.Handler):
         except Exception as e:
             print(f"Error in GuiHandler: {e}")
 
+def main() -> None:
+    """Main entry point for GUI application."""
+    import tkinter as tk
+    
+    root = tk.Tk()
+    app = CTFGui(root)
+    root.protocol("WM_DELETE_WINDOW", app._on_closing)
+    root.mainloop()
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    gui = CTFGui(root)
-    root.mainloop()
+    main()
     # Clean up on exit

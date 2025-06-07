@@ -98,44 +98,37 @@ class ICMPChallenge:
         #logging.debug("Challenge state reset.")
 
 def start_icmp_server():
-    """ Starts the ICMP listener """
+    """ Starts the ICMP listener and blocks until the challenge is truly completed. """
     # logging.info("Starting ICMP server...")
     # Select interface to listen on - choose the first interface
     interface = dev_from_index(1)  # Based on show_interfaces output
     
     # Display the selected interface
-    if interface:
-        logging.info(f"Listening on interface: {interface}")
-    else:
-        logging.info("Listening on all interfaces")
+    # if interface:
+    #     logging.info(f"Listening on interface: {interface}")
+    # else:
+    #     logging.info("Listening on all interfaces")
 
     print("bbHHh!") # Hint to the user to send a ping with this payload
     # Show available interfaces for reference
     challenge_handler = ICMPChallenge()
-    
-    # Define a more specific BPF filter to capture only ICMP echo requests with our specific ID
-    # But Scapy does not support filtering by ICMP ID, so we will filter in our code
-    # BPF filter to capture only ICMP traffic to the local address
     bpf_filter = "icmp and host 127.0.0.1"
-    
-    # Start listening, and stop when the challenge is completed
     try:
-        sniff(
-            filter=bpf_filter,
-            prn=challenge_handler.handle_request,
-            store=0,
-            iface=interface,
-            stop_filter=lambda p: challenge_handler.completion_event.is_set()
-        )
-        # If sniff finished because the event was set, return True
-        if challenge_handler.completion_event.is_set():
-            return True
-        else:
-            # Sniff might have stopped for other reasons (e.g., error not caught below)
-            logging.warning("Sniffing stopped but challenge completion event was not set.")
-            return False
-
+        while not challenge_handler.completion_event.is_set():
+            sniff(
+                filter=bpf_filter,
+                prn=challenge_handler.handle_request,
+                store=0,
+                iface=interface,
+                stop_filter=lambda p: challenge_handler.completion_event.is_set(),
+                timeout=5  # Prevents infinite blocking if interface is broken
+            ) # If sniffed 
+        # logging.info("ICMP challenge event set. Proceeding.")
+        return True
     except KeyboardInterrupt:
-        logging.info("Server stopped by user")
+        # logging.info("Server stopped by user")
+        pass
     except Exception as e:
-        logging.error(f"Error in sniffing: {e}")
+        # logging.error(f"Error in sniffing: {e}")
+        pass
+    return False

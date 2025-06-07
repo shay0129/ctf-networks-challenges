@@ -1,12 +1,15 @@
 """
 CA Certificate Client Module
 Handles certificate requests from the Certificate Authority
+
+This script is the dedicated client for the CA server (Certificate Authority).
+Use this to generate a CSR, send it to the CA, and receive a signed certificate.
+After running this, use server_client.py to connect to the main CTF server.
 """
 from typing import Optional, Tuple
 import logging
 import socket
 import ssl
-import re
 
 from .protocol import CAConfig, ProtocolConfig, BurpConfig, ClientConfig
 from .utils.client import setup_proxy_connection, create_client_ssl_context, padding_csr
@@ -25,24 +28,89 @@ class CAClient:
         return self.context is not None
 
     def handle_ca_mode(self) -> None:
-        """Handle CA communication mode"""
-        logging.info("=== CA Mode - Getting Certificate ===")
+        """Minimal CA mode: send CSR, receive cert, save cert, then delete key for forensics challenge."""
+        # logging.info("=== CA Mode - Getting Certificate ===")
         try:
-            # Generate CSR
             client_csr, client_key = self._generate_csr()
             download_file(ClientConfig.CLIENT_KEY_PATH, client_key)
-            
+            # Forensics challenge: delete the key after saving (uncomment for final CTF)
+            # delete_client_key(ClientConfig.CLIENT_KEY_PATH)
             if not self.init_ssl_context():
                 return
-
-            # Connect to CA
             self.secure_sock = self._establish_ca_connection()
-            if self.secure_sock:
-                with self.secure_sock:
-                    self._handle_ca_communication(client_csr)
-
+            if not self.secure_sock:
+                logging.error("Failed to connect to CA server.")
+                return
+            with self.secure_sock:
+                if not self.send_csr(client_csr):
+                    logging.error("Failed to send CSR to CA.")
+                    return
+                if not self.receive_cert():
+                    logging.error("Failed to receive certificate from CA.")
+                # else:
+                #     logging.info("Certificate obtained successfully.")
         except Exception as e:
             logging.error(f"Error in CA mode: {e}")
+
+    def send_csr(self, csr: bytes) -> bool:
+        """Send CSR (with padding) to CA server using HTTP POST."""
+        try:
+            if self.secure_sock is None:
+                logging.error("No secure socket available to send CSR.")
+                return False
+            padding = padding_csr(len(csr))
+            body = csr + padding
+            # Compose minimal HTTP POST request
+            request = b"POST / HTTP/1.1\r\n" + \
+                      b"Host: " + CAConfig.HOSTNAME.encode() + b"\r\n" + \
+                      b"Content-Length: " + str(len(body)).encode() + b"\r\n" + \
+                      b"Connection: close\r\n" + \
+                      b"\r\n" + \
+                      body
+            self.secure_sock.sendall(request)
+            return True
+        except Exception as e:
+            logging.error(f"Error sending CSR: {e}")
+            return False
+
+    def receive_cert(self) -> bool:
+        """Receive and save the certificate from the CA server."""
+        try:
+            if self.secure_sock is None:
+                logging.error("No secure socket available to receive certificate.")
+                return False
+            response = b""
+            self.secure_sock.settimeout(ProtocolConfig.READ_TIMEOUT * 2)
+            try:
+                while True:
+                    chunk = self.secure_sock.recv(8192)
+                    if not chunk:
+                        break
+                    response += chunk
+            finally:
+                self.secure_sock.settimeout(None)
+            if not response:
+                logging.error("No data received from CA for signed certificate")
+                return False
+            # Try to extract PEM certificate from HTTP response if present
+            pem_start = response.find(b"-----BEGIN CERTIFICATE-----")
+            pem_end = response.find(b"-----END CERTIFICATE-----")
+            if pem_start != -1 and pem_end != -1:
+                pem_end += len(b"-----END CERTIFICATE-----")
+                cert_pem = response[pem_start:pem_end]
+            else:
+                cert_pem = response.strip()
+            if not cert_pem.startswith(b"-----BEGIN CERTIFICATE-----"):
+                logging.error("Received data does not look like a valid certificate.")
+                logging.error(f"Raw response from CA server: {response!r}")
+                return False
+            with open(ClientConfig.CLIENT_CERT_PATH, 'wb') as crt_file:
+                crt_file.write(cert_pem)
+            # logging.info(f"Signed certificate saved to {ClientConfig.CLIENT_CERT_PATH}")
+            return True
+        except Exception as e:
+            logging.error(f"Error receiving certificate: {e}")
+            return False
 
     def _establish_ca_connection(self) -> Optional[ssl.SSLSocket]:
         """Establish connection to CA server"""
@@ -67,28 +135,23 @@ class CAClient:
     
     def _generate_csr(self) -> Tuple[bytes, bytes]:
         """Generate CSR and client key using the cryptography library"""
-        logging.info("Generating CSR...")
-        
-        # Import needed cryptography modules
+        # logging.info("Generating CSR...")
         from cryptography.hazmat.primitives.asymmetric import rsa
         from cryptography.hazmat.primitives import serialization, hashes
         from cryptography.x509.oid import NameOID
         from cryptography import x509
-        
-        # Generate private key
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=4096,
         )
-        
-        # Save private key in PEM format
         private_key_pem = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption()
         )
-        
-        # Create CSR
+        # WARNING: Organization and Common Name are intentionally set to "None" for CTF challenge
+        # Participants must use Burp proxy to intercept and modify the CSR before it's sent to CA
+        # The server expects Organization="Sharif University of Technology" and Common Name="Shay"
         csr = x509.CertificateSigningRequestBuilder().subject_name(x509.Name([
             x509.NameAttribute(NameOID.COUNTRY_NAME, "IR"),
             x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tehran"),
@@ -97,114 +160,8 @@ class CAClient:
             x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Cybersecurity Department"),
             x509.NameAttribute(NameOID.COMMON_NAME, "None"),  # Should be client name
         ])).sign(private_key, hashes.SHA512())
-        
-        # Convert CSR to PEM format
         csr_pem = csr.public_bytes(serialization.Encoding.PEM)
-        
         return csr_pem, private_key_pem
-
-    def _handle_ca_communication(self, client_csr: bytes) -> None:
-        """Handle communication with CA server"""
-        if self._send_csr_request(client_csr):
-            logging.info("Waiting for CA response...")
-            if self.secure_sock is None:
-                logging.error("No secure socket available for CA communication.")
-                return
-            self.secure_sock.settimeout(ProtocolConfig.READ_TIMEOUT * 5)
-            # Wait for the server to send a prompt for the name
-            prompt = self.secure_sock.recv(1024)
-            if b"Please enter your name:" in prompt:
-                print("Please enter your name: ", end='', flush=True)
-                user_name = input().strip()
-                if not re.match(r"^[a-zA-Z0-9_]+$", user_name):
-                    logging.error("Invalid name format. Only alphanumeric characters and underscores are allowed.")
-                    return
-                self.secure_sock.sendall(user_name.encode() + b"\n")
-                logging.info(f"Sent name: {user_name}")
-            if self._get_signed_certificate():
-                logging.info("Certificate obtained successfully")
-
-    def _send_csr_request(self, csr: bytes) -> bool:
-        """Send CSR request to CA server"""
-        try:
-            if self.secure_sock is None:
-                logging.error("No secure socket available to send CSR request.")
-                return False
-            padding = padding_csr(len(csr))  # Ensure padding is correct
-            http_request = (
-                f"POST /sign_csr HTTP/1.1\r\n"
-                f"Host: {CAConfig.HOSTNAME}\r\n"
-                f"Content-Length: {len(csr) + len(padding)}\r\n"  # Important to include padding length
-                f"Content-Type: application/x-pem-file\r\n\r\n"
-            ).encode() + csr + padding
-            self.secure_sock.sendall(http_request)
-            #logging.info("CSR sent successfully")
-            return True
-        except Exception:
-            #logging.error(f"Error sending CSR request: {e}")
-            return False
-
-    def _get_signed_certificate(self) -> bool:
-        """Receive the signed certificate from the CA server, parse HTTP, and save it."""
-        try:
-            if self.secure_sock is None:
-                logging.error("No secure socket available to receive certificate.")
-                return False
-            response = b""
-            # Set a reasonable timeout for reading the response
-            self.secure_sock.settimeout(ProtocolConfig.READ_TIMEOUT * 2)
-            while True:
-                chunk = self.secure_sock.recv(8192)
-                if not chunk:
-                    break # Connection closed by server/proxy
-                response += chunk
-            self.secure_sock.settimeout(None) # Reset timeout
-            if not response:
-                logging.error("No data received from CA/Proxy for signed certificate")
-                return False
-
-            # --- HTTP Response Parsing ---
-            if b"\r\n\r\n" in response:
-                headers_part, body_data = response.split(b"\r\n\r\n", 1)
-                headers_str = headers_part.decode('utf-8', errors='ignore')
-                logging.debug(f"Received CA/Proxy headers:\n{headers_str}")
-
-                # Check HTTP status code
-                if "HTTP/1.1 200 OK" not in headers_str.splitlines()[0]:
-                    logging.error(f"Received non-OK status from CA/Proxy: {headers_str.splitlines()[0]}")
-                    logging.error(f"Response Body (potential error message):\n{body_data.decode('utf-8', errors='ignore')}")
-                    # DO NOT SAVE THIS BODY AS CERTIFICATE
-                    return False
-
-                # Check if the body looks like a certificate (basic check)
-                if not body_data.strip().startswith(b"-----BEGIN CERTIFICATE-----"):
-                    logging.error("Received data body does not look like a valid certificate.")
-                    logging.debug(f"Received Body:\n{body_data.decode('utf-8', errors='ignore')}")
-                    # DO NOT SAVE THIS BODY AS CERTIFICATE
-                    return False
-
-                # --- Save ONLY the valid certificate body ---
-                try:
-                    with open(ClientConfig.CLIENT_CERT_PATH, 'wb') as crt_file:
-                        crt_file.write(body_data)
-                    logging.info(f"Signed certificate saved to {ClientConfig.CLIENT_CERT_PATH}")
-                    return True
-                except Exception as e:
-                    logging.error(f"Failed to write certificate file: {e}")
-                    return False
-            else:
-                # If no \r\n\r\n, it's likely not a valid HTTP response
-                logging.error("Invalid response format received - missing \\r\\n\\r\\n separator.")
-                logging.debug(f"Received raw data:\n{response.decode('utf-8', errors='ignore')}")
-                return False
-
-        except socket.timeout:
-            logging.error("Timeout waiting for certificate data from CA/Proxy.")
-            return False
-        except Exception as e:
-            logging.error(f"Error receiving or processing signed certificate response: {e}")
-            #traceback.print_exc()
-            return False
 
 def main() -> None:
     """Main function handling certificate acquisition from CA"""
@@ -212,7 +169,7 @@ def main() -> None:
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    print("Use Burp proxy? (y/n): ", flush=True)
+    print("🔧 Configure proxy connection? (y/n): ", flush=True)
     use_proxy = input().lower().startswith('y')
     client = CAClient(use_proxy)
     client.handle_ca_mode()

@@ -1,0 +1,6 @@
+[console_scripts]
+ctf-ca-client = tls.ca_client:main
+ctf-gui = tls.gui:main
+ctf-ping-player = tls.server_challenges.ping_player:main
+ctf-server = tls.ctf_server:main
+ctf-server-client = tls.server_client:main

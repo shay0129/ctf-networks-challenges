@@ -8,16 +8,15 @@ import threading
 import logging
 import socket
 import select
-import time
 import ssl
 import queue
 import tempfile
 import os
 
 from .protocol import ServerConfig, ProtocolConfig, SSLConfig
-from .utils.server import handle_ssl_request, _temp_cert_to_context  # type: ignore[reportPrivateUsage]
+from .utils.server import handle_ssl_request
 from .server_challenges.icmp_challenge import start_icmp_server
-from .server_challenges.ca_challenge import CAChallenge
+#from .server_challenges.ca_challenge import CAChallenge
 from .server_challenges.enigma_challenge import EnigmaChallenge
 
 class CTFServer:
@@ -25,7 +24,7 @@ class CTFServer:
     def __init__(self, client_update_queue: Optional[queue.Queue[Any]] = None, client_message_queue: Optional[queue.Queue[Any]] = None):
         self.running: bool = True
         self.icmp_completed: bool = False
-        self.ca_challenge: CAChallenge = CAChallenge()
+        #self.ca_challenge: CAChallenge = CAChallenge()
         self.image_challenge: EnigmaChallenge = EnigmaChallenge()
         self.server_socket: Optional[socket.socket] = None
         self.context: Optional[ssl.SSLContext] = None
@@ -39,7 +38,7 @@ class CTFServer:
         """Runs the ICMP challenge first, then initializes and runs the main TLS server loop if ICMP succeeds."""
         try:
             # Run ICMP challenge first
-            self.logger.info("Starting ICMP Challenge...")
+            #self.logger.info("Starting ICMP Challenge...")
             # Call the imported function directly, not as a method of self
             icmp_success = start_icmp_server() # CORRECTED CALL
 
@@ -67,7 +66,7 @@ class CTFServer:
         self.server_socket.bind((ServerConfig.IP, ServerConfig.PORT))
         self.server_socket.listen(ProtocolConfig.MAX_CONNECTIONS)
         self.server_socket.setblocking(False)
-        self.logger.info(f"Listening for collaborator connections on {ServerConfig.IP}:{ServerConfig.PORT}")
+        self.logger.info(f"Listening on {ServerConfig.IP}:{ServerConfig.PORT}")
 
     def handle_collaborator(self, ssl_socket: ssl.SSLSocket, addr: tuple[Any, ...]) -> None:
         """Handle communication with a connected collaborator using handle_ssl_request."""
@@ -87,8 +86,9 @@ class CTFServer:
         except socket.timeout:
              self.logger.warning(f"Socket timeout during communication with {addr_str}.")
         except Exception as e:
-            self.logger.error(f"Error handling collaborator {addr_str}: {e}")
-            #traceback.print_exc()
+            print("connection closed")
+            self.running = False
+            return
         finally:
             # Cleanup: Close the socket and notify GUI of disconnection
             try:
@@ -96,7 +96,7 @@ class CTFServer:
                 # Remove from internal list if necessary
                 if ssl_socket in self.collaborator_sockets:
                     self.collaborator_sockets.remove(ssl_socket)
-                # Notify GUI about disconnection
+                # Notify GUI about disconnection (always)
                 if self.client_update_queue:
                     self.client_update_queue.put(('disconnect', addr_str))
             except Exception as e:
@@ -105,8 +105,6 @@ class CTFServer:
 
     def _handle_collaborator_connections(self) -> None:
         """Accept and handle incoming collaborator connections."""
-        encryption_key_printed = False
-        start_time = time.time()
 
         while self.running:
             ready, _, _ = select.select([self.server_socket], [], [], 0.1)  # type: ignore[attr-defined]
@@ -145,11 +143,6 @@ class CTFServer:
                     client_socket.close()
                     # Optionally notify GUI of failed connection attempt if needed
 
-            # Print encryption key after delay (only once)
-            if not encryption_key_printed and time.time() - start_time > 5:
-                self.image_challenge.print_encryption_key()
-                encryption_key_printed = True
-
             # Basic cleanup of finished threads (optional, but good practice)
             self.collaborator_threads = [t for t in self.collaborator_threads if t.is_alive()]
 
@@ -183,7 +176,7 @@ def _temp_cert_to_context(context: ssl.SSLContext, cert_content: Union[str, byte
             else:
                 temp_cert.write(cert_content)
             cert_path = temp_cert.name
-            
+        
         if key_content:
             with tempfile.NamedTemporaryFile(mode='wb', delete=False) as temp_key:
                 if isinstance(key_content, str):
@@ -223,3 +216,27 @@ def create_server_ssl_context(cert_content: str, key_content: str) -> ssl.SSLCon
         raise
 
     return context
+
+def main() -> None:
+    """Main entry point for command line execution."""
+    import logging
+    
+    # Set up basic logging for standalone execution
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    
+    # Create and run the CTF server
+    server = CTFServer()
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        logging.info("Server interrupted by user")
+    except Exception as e:
+        logging.error(f"Server error: {e}")
+    finally:
+        server.cleanup()
+
+if __name__ == "__main__":
+    main()

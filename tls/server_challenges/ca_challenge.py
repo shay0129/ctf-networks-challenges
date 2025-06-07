@@ -1,11 +1,10 @@
-# type: ignore[attr-defined]
+# type: ignore[attr-defined], ignore[reportPrivateUsage], ignore[reportPrivateUsage]
 """
 Certificate Authority Server
 Handles certificate signing requests and manages SSL connections.
 """
 import logging
 import tempfile
-# import traceback # No longer needed if we remove print_exc
 import os
 
 import socket
@@ -29,8 +28,8 @@ from ..utils.ca import (
     download_file,
     read_http_request,
     send_error_response,
-    _extract_csr,  # type: ignore[reportPrivateUsage]
-    _validate_csr_checksum  # type: ignore[reportPrivateUsage]
+    extract_csr,
+    validate_csr_checksum
 )
 
 # Constants
@@ -72,7 +71,7 @@ def create_ca_server_ssl_context(cert: bytes, key: bytes) -> ssl.SSLContext:
         return context
 
     except Exception as e:
-        logging.error(f"Failed to create SSL context: {e}") # Keep critical errors
+        logging.critical(f"Failed to create SSL context: {e}") # Keep critical errors
         # Ensure cleanup of temp files if context creation fails
         if cert_path and os.path.exists(cert_path):
             try: os.remove(cert_path)
@@ -118,36 +117,27 @@ class CAChallenge:
             raise
 
     def handle_client_request(self, ssl_socket: ssl.SSLSocket) -> bool:
-        """Handle incoming CSR request"""
+        """Handle incoming CSR request (minimal, direct)"""
         try:
-            headers: dict[bytes, bytes] | None
-            initial_body: bytes | None
             headers, initial_body = self._read_and_validate_request(ssl_socket)
             if not headers or initial_body is None:
                 return False
-            # Use internal utility functions for CSR extraction and validation
-            success, result = _extract_csr(ssl_socket, headers, initial_body)
+            success, result = extract_csr(ssl_socket, headers, initial_body)
             if not success or not result:
                 return False
             original_csr, padded_checksum = result
-            if not _validate_csr_checksum(original_csr, padded_checksum):
-                send_error_response(ssl_socket, HTTP_FORBIDDEN, b"CSR checksum validation failed")
+            if not validate_csr_checksum(original_csr, padded_checksum):
                 return False
             verify_result = verify_client_csr(original_csr, ssl_socket)
             if not verify_result:
-                send_error_response(ssl_socket, HTTP_FORBIDDEN, b"CSR verification failed")
                 return False
-            return self._sign_and_send_certificate(ssl_socket, original_csr)
-        except ConnectionAbortedError:
-            logging.warning("Client connection aborted.")
-            return False
+            cert = self.sign_csr(original_csr)
+            if not cert:
+                return False
+            self.send_cert(ssl_socket, cert)
+            return True
         except Exception as e:
-            logging.error(f"Error handling client request: {str(e)}")
-            if ssl_socket.fileno() != -1:
-                try:
-                    send_error_response(ssl_socket, HTTP_SERVER_ERROR, b"Internal server error")
-                except Exception:
-                    pass
+            logging.critical(f"CA server error: {str(e)}")
             return False
 
     def _read_and_validate_request(self, ssl_socket: ssl.SSLSocket) -> tuple[dict[bytes, bytes] | None, bytes | None]:
@@ -158,53 +148,32 @@ class CAChallenge:
                 return None, None
             return headers, initial_body
         except Exception as e:
-            logging.error(f"Error reading HTTP request: {str(e)}")
+            logging.critical(f"Error reading HTTP request: {str(e)}")
             send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Error reading request")
             return None, None
 
-    def _sign_and_send_certificate(self, ssl_socket: ssl.SSLSocket, csr: bytes) -> bool:
+    def sign_csr(self, csr: bytes) -> bytes | None:
+        """Sign a CSR and return the certificate bytes, or None on error."""
         try:
             if self.key_bytes is None or self.cert_bytes is None:
-                logging.error("CA key or cert bytes are None")
-                send_error_response(ssl_socket, b"HTTP/1.1 500 Internal Server Error", b"CA key/cert missing")
-                return False
-            crt_file = sign_csr_with_ca(csr_pem=csr, ca_key_pem=self.key_bytes, ca_cert_pem=self.cert_bytes)
-            if not crt_file:
-                logging.error("Certificate signing failed")
-                send_error_response(ssl_socket, b"HTTP/1.1 500 Internal Server Error", b"Certificate signing failed")
-                return False
-            self._send_signed_certificate(ssl_socket, crt_file)
-            logging.info("Certificate signed and sent successfully.")
-            return True
+                logging.critical("CA key or cert bytes are None")
+                return None
+            return sign_csr_with_ca(csr_pem=csr, ca_key_pem=self.key_bytes, ca_cert_pem=self.cert_bytes)
         except Exception as e:
-            logging.error(f"Error signing/sending certificate: {str(e)}")
-            send_error_response(ssl_socket, b"HTTP/1.1 500 Internal Server Error", b"Error generating certificate")
-            return False
+            logging.critical(f"CA sign error: {str(e)}")
+            return None
 
-    def _send_signed_certificate(self, ssl_socket: ssl.SSLSocket, crt_file: bytes) -> None:
-        """Send signed certificate back to client"""
-        certificate_length = len(crt_file)
-        if certificate_length > CAConfig.MAX_CERT_SIZE:
-            send_error_response(ssl_socket, b"HTTP/1.1 413 Payload Too Large", b"Certificate size exceeds limit")
-            return
-        content_length = str(certificate_length).encode('utf-8')
-        response_headers = [
-            b"HTTP/1.1 200 OK",
-            b"Content-Type: application/x-pem-file",
-            b"Content-Length: " + content_length,
-            b"Connection: close",
-            b"",
-            b""
-        ]
-        response = b"\r\n".join(response_headers) + crt_file
-
-        # Internal check, no need to log error here, send_error_response handles it
-        if certificate_length != int(response_headers[2].split(b":")[1].strip()):
-            send_error_response(ssl_socket, b"HTTP/1.1 500 Internal Server Error", b"Response Content-Length error")
-            return
-
-        ssl_socket.sendall(response)
-        #logging.debug("Certificate response sent.")
+    def send_cert(self, ssl_socket: ssl.SSLSocket, cert: bytes) -> None:
+        """Send the signed certificate to the client as a valid HTTP response."""
+        try:
+            # Prepare HTTP response headers
+            response_headers = b"HTTP/1.1 200 OK\r\n"
+            response_headers += b"Content-Type: application/x-pem-file\r\n"
+            response_headers += f"Content-Length: {len(cert)}\r\n".encode()
+            response_headers += b"Connection: close\r\n\r\n"
+            ssl_socket.sendall(response_headers + cert)
+        except Exception as e:
+            logging.critical(f"CA send cert error: {e}")
 
     def run(self) -> None:
         if not self.server_socket:
@@ -219,19 +188,18 @@ class CAChallenge:
                         break
                     client_socket, _ = self.server_socket.accept()
                 except OSError:
-                    logging.info("Server socket closed, stopping.")
                     break
                 try:
                     if not self.context:
                         continue
                     with self.context.wrap_socket(client_socket, server_side=True) as ssl_socket:
                         if self.handle_client_request(ssl_socket):
-                            logging.info("Challenge interaction completed.")
+                            pass
                 except ssl.SSLError as e:
                     if "UNKNOWN_PROTOCOL" not in str(e) and "WRONG_VERSION_NUMBER" not in str(e):
                         logging.warning(f"SSL error: {e}")
                 except Exception as e:
-                    logging.error(f"Error during client handling: {e}")
+                    logging.critical(f"Error during client handling: {e}")
                 finally:
                     if client_socket.fileno() != -1:
                         try:
@@ -239,35 +207,27 @@ class CAChallenge:
                         except Exception:
                             pass
         except KeyboardInterrupt:
-            logging.info("Shutdown signal received.")
+            pass
         finally:
             if self.server_socket:
                 try:
                     self.server_socket.close()
-                    logging.info("CA server socket closed.")
                 except Exception:
                     pass
 
     def __del__(self):
-        """Cleanup on destruction"""
-        # This might not be reliably called. Use 'finally' in run() for cleanup.
         if self.server_socket and self.server_socket.fileno() != -1:
             try:
                 self.server_socket.close()
-                # logging.debug("Socket closed in __del__") # DEBUG
             except Exception:
                 pass
         self.context = None
 
 if __name__ == "__main__":
-    # Logging is configured at the top
     ca_server = CAChallenge()
     try:
-        # initialize() is called within run() if needed
         ca_server.run()
     except Exception as e:
-        # Critical failure already logged in initialize() or run()
-        # logging.critical(f"CA Server failed unexpectedly: {e}") # Redundant?
-        pass # Exit gracefully
+        pass
     finally:
-        logging.info("CA server process finished.")
+        pass
