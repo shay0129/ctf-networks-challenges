@@ -65,11 +65,11 @@ For comprehensive step-by-step solutions with complete code implementations, tro
 
 ### 🎯 Complete Solution Guides
 
-| Challenge Phase | Walkthrough Document | Topics Covered | Difficulty |
-|----------------|---------------------|----------------|------------|
-| **Phase 1: ICMP** | [`ICMP_CHALLENGE_WALKTHROUGH.md`](ICMP_CHALLENGE_WALKTHROUGH.md) | Packet crafting, Scapy, timing constraints, protocol analysis | ⭐⭐⭐☆☆ |
-| **Phase 2: CA** | [`CA_CHALLENGE_WALKTHROUGH.md`](CA_CHALLENGE_WALKTHROUGH.md) | PKI infiltration, Burp Suite MITM, certificate manipulation, file recovery | ⭐⭐⭐⭐☆ |
-| **Phase 3: Enigma** | [`ENIGMA_CHALLENGE_WALKTHROUGH.md`](ENIGMA_CHALLENGE_WALKTHROUGH.md) | Steganography, historical cryptography, audio forensics, metadata extraction | ⭐⭐⭐⭐⭐ |
+| Challenge Phase      | Walkthrough Document                | Topics Covered                                              | Difficulty |
+|----------------------|-------------------------------------|-------------------------------------------------------------|------------|
+| Phase 1: ICMP        | [ICMP_CHALLENGE_WALKTHROUGH.md](documents/ICMP_CHALLENGE_WALKTHROUGH.md)   | Packet crafting, Scapy, timing constraints, protocol analysis | ⭐⭐⭐☆☆     |
+| Phase 2: CA          | [CA_CHALLENGE_WALKTHROUGH.md](documents/CA_CHALLENGE_WALKTHROUGH.md)       | PKI infiltration, Burp Suite MITM, certificate manipulation, file recovery | ⭐⭐⭐⭐☆     |
+| Phase 3: Enigma      | [ENIGMA_CHALLENGE_WALKTHROUGH.md](documents/ENIGMA_CHALLENGE_WALKTHROUGH.md) | Steganography, historical cryptography, audio forensics, metadata extraction | ⭐⭐⭐⭐⭐     |
 
 ### 🛠️ What You'll Find in Each Walkthrough
 
