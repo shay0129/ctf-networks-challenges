@@ -64,7 +64,7 @@ python -m tls.gui
 For comprehensive step-by-step solutions with complete code implementations, troubleshooting guides, and detailed learning outcomes, please refer to the following detailed walkthrough documents:
 
 ### 🎯 Complete Solution Guides
-**Secuense diagram**
+**Sequence diagram**
 ![CTF Main Flow](documents/MermaidChartCTF.png)
 
 | Challenge Phase      | Walkthrough Document                | Topics Covered                                              | Difficulty |
