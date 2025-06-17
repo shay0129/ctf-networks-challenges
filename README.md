@@ -1,7 +1,6 @@
 # CTF Networks Challenge: Operation BLACKBIRD INTERCEPT
 
-![CTF Main Flow](documents/Mermaid Chart - CTF.png)
-
+![CTF Main Flow](documents/MermaidChartCTF.png)
 > **Academic Course**: Advanced Computer Networks (Spring 2024)  
 > **Institution**: Lev Academic Center  
 > **Lecturer**: Barak Gonen  
