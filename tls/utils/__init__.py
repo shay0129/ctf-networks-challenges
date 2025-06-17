@@ -17,13 +17,12 @@ from .ca import (
 from .client import (
     create_client_ssl_context,
     setup_proxy_connection,
-    padding_csr
+    padding_csr,
 )
 from .server import (
     cleanup,
     verify_client_cert,
-    setup_server_socket,
-    handle_ssl_request
+    setup_server_socket
 )
 
 __all__ = [
@@ -49,6 +48,5 @@ __all__ = [
     # Server
     'cleanup',
     'verify_client_cert',
-    'setup_server_socket',
-    'handle_ssl_request'
-]
+    'setup_server_socket'
+    ]

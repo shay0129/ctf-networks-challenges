@@ -14,14 +14,16 @@ import tempfile
 import os
 
 from .protocol import ServerConfig, ProtocolConfig, SSLConfig
-from .utils.server import handle_ssl_request
 from .server_challenges.icmp_challenge import start_icmp_server
 #from .server_challenges.ca_challenge import CAChallenge
 from .server_challenges.enigma_challenge import EnigmaChallenge
+from .utils.server import verify_client_cert, create_multipart_response
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 
 class CTFServer:
-    """Main CTF server managing all challenges sequentially"""
-    def __init__(self, client_update_queue: Optional[queue.Queue[Any]] = None, client_message_queue: Optional[queue.Queue[Any]] = None):
+    """Main CTF server managing all challenges sequentially, including ICMP and TLS certificate-based challenges."""
+    def __init__(self, client_update_queue: Optional[queue.Queue[Any]] = None, client_message_queue: Optional[queue.Queue[Any]] = None) -> None:
         self.running: bool = True
         self.icmp_completed: bool = False
         #self.ca_challenge: CAChallenge = CAChallenge()
@@ -42,14 +44,11 @@ class CTFServer:
             # Call the imported function directly, not as a method of self
             icmp_success = start_icmp_server() # CORRECTED CALL
 
-            if not icmp_success:
-                self.logger.error("ICMP Challenge failed or was not completed. Stopping server.")
-                return # Exit the run method if ICMP failed
-
-            # If ICMP succeeded, proceed with TLS server
-            self.logger.info("ICMP Challenge completed successfully. Starting TLS Collaborator Server...")
-            self.initialize_collaborator_server()
-            self._handle_collaborator_connections()
+            if icmp_success:
+                # If ICMP succeeded, proceed with TLS server
+                self.logger.info("ICMP Challenge completed successfully. Starting TLS Collaborator Server...")
+                self.initialize_collaborator_server()
+                self._handle_collaborator_connections()
 
         except Exception as e:
             self.logger.error(f"Server run failed: {e}")
@@ -69,39 +68,102 @@ class CTFServer:
         self.logger.info(f"Listening on {ServerConfig.IP}:{ServerConfig.PORT}")
 
     def handle_collaborator(self, ssl_socket: ssl.SSLSocket, addr: tuple[Any, ...]) -> None:
-        """Handle communication with a connected collaborator using handle_ssl_request."""
-        addr_str = str(addr) # Use string representation for queue/listbox
+        """Handle communication with a connected collaborator: verify cert, route by CSR modification."""
+        
+        addr_str = str(addr)
         try:
             self.logger.info(f"Handling collaborator connection from {addr_str}")
-            # Todo: Implement the verification of the client certificate here, after client cert included handshake
-            print("!!!")  # Debugging print to indicate start of handling
-            # Pass the message queue and address to handle_ssl_request
-            if handle_ssl_request(ssl_socket, [], client_message_queue=self.client_message_queue, addr=addr_str):
-                self.logger.info(f"Collaborator {addr_str} request handled successfully by handle_ssl_request.")
-            else:
-                self.logger.warning(f"handle_ssl_request failed for collaborator {addr_str}.")
+            cert_bin = ssl_socket.getpeercert(binary_form=True)
+            if not cert_bin:
+                self.logger.warning(f"No client certificate received from {addr_str}")
+                ssl_socket.sendall(b"HTTP/1.1 403 Forbidden\r\n\r\nClient certificate required\n")
+                return
+            cert = x509.load_der_x509_certificate(cert_bin, default_backend())
+            if not verify_client_cert(cert_bin):
+                self.logger.warning(f"Untrusted client certificate from {addr_str}")
+                ssl_socket.sendall(b"HTTP/1.1 403 Forbidden\r\n\r\nInvalid or untrusted client certificate.\n")
+                return
+            # Check for two required edited fields in the certificate (example: CN and O)
+            subject = cert.subject
+            cn_list = subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)
+            org_list = subject.get_attributes_for_oid(x509.NameOID.ORGANIZATION_NAME)
+            if not org_list:
+                ssl_socket.sendall(b"Look on pcap again...\n")
+                return
+            if not cn_list:
+                ssl_socket.sendall(b"I don't know you\nCheck your CN\n")
+                return
+            cn = cn_list[0].value
+            org = org_list[0].value
+            hello_msg = f"Hello {cn}!\nWelcome to the {org}\n".encode()
+            ssl_socket.sendall(hello_msg)
 
-        except ssl.SSLError as e:
-             self.logger.error(f"SSL error during communication with {addr_str}: {e}")
-        except socket.timeout:
-             self.logger.warning(f"Socket timeout during communication with {addr_str}.")
+            # --- Parse HTTP request ---
+            request_data = ssl_socket.recv(4096)
+            if request_data.startswith(b"GET /resource"):
+                # --- Start Enigma challenge (send encrypted messages and image) ---
+                enigma_challenge = EnigmaChallenge()
+                if not enigma_challenge.create_challenge_image():
+                    ssl_socket.sendall(b"HTTP/1.1 500 Internal Server Error\r\n\r\nFailed to create challenge image.\n")
+                    return
+                multipart_response = create_multipart_response(
+                    enigma_challenge.get_encrypted_messages() + [
+                        "Request the secret audio with GET /audio and inspect the response in your proxy tool."
+                    ]
+                )
+                ssl_socket.sendall(multipart_response)
+                self.logger.info(f"Collaborator {addr_str} started Enigma challenge.")
+
+                # --- Wait for GET /audio request ---
+                audio_request = ssl_socket.recv(4096)
+                if audio_request.startswith(b"GET /audio"):
+                    self.send_audio(ssl_socket)
+                    self.logger.info(f"Sent audio to {addr_str}.")
+                else:
+                    ssl_socket.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\nYou must use GET /audio!\n")
+                    return
+            else:
+                ssl_socket.sendall(b"HTTP/1.1 400 Bad Request\r\n\r\nYou must use GET /resource!\n")
+                self.logger.info(f"Collaborator {addr_str} sent wrong HTTP method.")
+                return
+
         except Exception as e:
-            print("connection closed")
-            self.running = False
-            return
+            self.logger.error(f"Error handling collaborator {addr_str}: {e}")
         finally:
-            # Cleanup: Close the socket and notify GUI of disconnection
             try:
                 ssl_socket.close()
-                # Remove from internal list if necessary
                 if ssl_socket in self.collaborator_sockets:
                     self.collaborator_sockets.remove(ssl_socket)
-                # Notify GUI about disconnection (always)
                 if self.client_update_queue:
                     self.client_update_queue.put(('disconnect', addr_str))
             except Exception as e:
                 self.logger.error(f"Error closing/removing socket for {addr_str}: {e}")
             self.logger.info(f"Connection with collaborator {addr_str} closed.")
+
+    def send_audio(self, ssl_socket: ssl.SSLSocket) -> None:
+        import base64
+        try:
+            with open('music/mario.mp3', 'rb') as f:
+                b64_mp3 = base64.b64encode(f.read())
+            response = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n" + b64_mp3
+            ssl_socket.sendall(response)
+        except Exception as e:
+            self.logger.error(f"Error sending audio: {e}")
+            ssl_socket.sendall(b"HTTP/1.1 500 Internal Server Error\r\n\r\nFailed to send audio.\n")
+
+    def _is_modified_csr(self, cert: x509.Certificate) -> bool:
+        """Detect if the certificate was generated from a modified CSR (e.g., by Burp)."""
+        try:
+            for attr in cert.subject:
+                if attr.value == 'MODIFIED':
+                    return True
+            # Or check for a custom extension, e.g.:
+            # for ext in cert.extensions:
+            #     if ext.oid.dotted_string == '1.2.3.4.5.6.7.8.1':
+            #         return True
+        except Exception:
+            pass
+        return False
 
     def _handle_collaborator_connections(self) -> None:
         """Accept and handle incoming collaborator connections."""
@@ -147,7 +209,7 @@ class CTFServer:
             self.collaborator_threads = [t for t in self.collaborator_threads if t.is_alive()]
 
     def cleanup(self) -> None:
-        """Cleanup resources on server shutdown"""
+        """Cleanup resources on server shutdown."""
         self.running = False
         if self.server_socket:
             self.server_socket.close()
@@ -209,7 +271,7 @@ def create_server_ssl_context(cert_content: str, key_content: str) -> ssl.SSLCon
 
         context.verify_mode = ssl.CERT_REQUIRED
         context.verify_flags = ssl.VERIFY_DEFAULT
-        context.load_verify_locations(cafile=ServerConfig.CA_CERT_PATH)
+        context.load_verify_locations(cafile='ca.crt')
 
     except Exception as e:
         logging.error(f"Error setting up server SSL context: {e}")

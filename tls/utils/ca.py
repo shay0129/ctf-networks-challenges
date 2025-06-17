@@ -246,22 +246,27 @@ def extract_csr(ssl_socket: ssl.SSLSocket, headers: Dict[bytes, bytes], initial_
     [INTERNAL/RESERVED] Extract CSR and checksum from request body without validation.
     This function is retained for possible future use or for reference in CSR handling logic.
     """
+    import logging
+    
     try:
         # Extract Content-Length from headers
         content_length_header: bytes = headers.get(b'content-length', b'0')
         declared_length = int(content_length_header)
+        logging.info(f"📋 [CSR_EXTRACT] Processing request body ({declared_length} bytes)")
         
         # Read complete request body
         body = read_request_body(ssl_socket, initial_body, declared_length)
+        logging.info(f"📄 [CSR_EXTRACT] Request body read successfully ({len(body)} bytes)")
         
         # Locate the padding marker
         if PADDING_MARKER not in body:
-            # logging.warning("Padding marker not found in request body")
+            logging.warning("❌ [CSR_EXTRACT] Padding marker not found in request body")
             send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid CSR format: missing padding marker")
             return False, None
         
         # Split the body by the padding marker
         csr_part, checksum_part = body.split(PADDING_MARKER, 1)
+        logging.info(f"🔍 [CSR_EXTRACT] Split body: CSR part ({len(csr_part)} bytes), checksum part ({len(checksum_part)} bytes)")
         
         # --- NEW: Extract only the PEM block for checksum calculation ---
         begin_marker = b"-----BEGIN CERTIFICATE REQUEST-----"
@@ -269,17 +274,20 @@ def extract_csr(ssl_socket: ssl.SSLSocket, headers: Dict[bytes, bytes], initial_
         begin_idx = csr_part.find(begin_marker)
         end_idx = csr_part.find(end_marker)
         if begin_idx == -1 or end_idx == -1:
-            # logging.warning("CSR PEM markers not found in request body")
+            logging.warning("❌ [CSR_EXTRACT] CSR PEM markers not found in request body")
             send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid CSR PEM format")
             return False, None
         end_idx += len(end_marker)
         csr_pem_block = csr_part[begin_idx:end_idx]
+        
         # Optionally, preserve trailing newline if present in original
         if csr_part[end_idx:end_idx+1] in (b'\n', b'\r'):
             csr_pem_block += csr_part[end_idx:end_idx+1]
         # --- END NEW ---
         # Handle newlines correctly
         csr_pem_block = _normalize_csr_newlines(csr_pem_block)
+        
+        logging.info(f"✅ [CSR_EXTRACT] PEM block extracted ({len(csr_pem_block)} bytes)")
         
         # Extract the embedded length
         try:
@@ -288,17 +296,28 @@ def extract_csr(ssl_socket: ssl.SSLSocket, headers: Dict[bytes, bytes], initial_
             # Remove any non-digit characters
             cleaned_checksum = ''.join(c for c in checksum_text if c.isdigit())
             embedded_length = int(cleaned_checksum)
+            logging.info(f"🔢 [CSR_EXTRACT] Embedded checksum: {embedded_length}")
+            
+            # Check if CSR might have been modified
+            if len(csr_pem_block) != embedded_length:
+                logging.warning(f"⚠️  [CSR_EXTRACT] POTENTIAL CSR MODIFICATION DETECTED!")
+                logging.warning(f"    Original length (checksum): {embedded_length}")
+                logging.warning(f"    Current length: {len(csr_pem_block)}")
+                logging.warning(f"    This could indicate CSR was modified via proxy/MITM!")
+            else:
+                logging.info("✅ [CSR_EXTRACT] CSR length matches checksum - no modification detected")
+            
             return True, (csr_pem_block, embedded_length)
         except ValueError:
-            # logging.warning(f"Could not parse embedded length from: {checksum_part!r}")
+            logging.warning(f"❌ [CSR_EXTRACT] Could not parse embedded length from: {checksum_part!r}")
             send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid CSR format: checksum not a number")
             return False, None
     except ValueError:
-        # logging.warning("Invalid Content-Length header")
+        logging.warning("❌ [CSR_EXTRACT] Invalid Content-Length header")
         send_error_response(ssl_socket, b"HTTP/1.1 400 Bad Request", b"Invalid Content-Length")
         return False, None
-    except Exception:
-        # logging.error(f"Error extracting CSR: {str(e)}")
+    except Exception as e:
+        logging.error(f"❌ [CSR_EXTRACT] Error extracting CSR: {str(e)}")
         send_error_response(ssl_socket, b"HTTP/1.1 500 Internal Server Error", b"Internal server error during CSR extraction")
         return False, None
 

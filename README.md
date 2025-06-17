@@ -1,5 +1,7 @@
 # CTF Networks Challenge: Operation BLACKBIRD INTERCEPT
 
+![CTF Main Flow](documents/Mermaid Chart - CTF.png)
+
 > **Academic Course**: Advanced Computer Networks (Spring 2024)  
 > **Institution**: Lev Academic Center  
 > **Lecturer**: Barak Gonen  
@@ -158,6 +160,21 @@ python verify_installation.py
 # This script checks all required tools and dependencies.
 ```
 
+### 🔐 Certificate Management
+
+**Important**: Certificate files (`.crt`, `.key`) are not included in this repository for security reasons. They will be automatically generated when you run the CTF challenges:
+
+- `ca.crt` - Created when CA server starts
+- `client.crt` - Generated after successful CSR submission  
+- `client.key` - Created during certificate request process
+
+**Certificate Location**: All certificate files are created in the same directory as the running executable/GUI.
+
+**Before GitHub Upload**: Use the cleanup script to ensure no certificates are accidentally committed:
+```bash
+python cleanup_certificates.py
+```
+
 ### Running the CTF:
 
 **Option 1: GUI Interface (Recommended)**  
@@ -187,6 +204,50 @@ python -m tls.server_challenges.ca_challenge
 ## 🔍 Mission Phases
 
 The mission is divided into three sequential phases. You must complete each one to proceed to the next.
+
+### 🔗 Sequential Challenge Flow
+
+The CTF architecture enforces a **mandatory sequential flow** to prevent bypassing phases:
+
+```
+INTENDED FLOW:
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│ ICMP        │───▶│ CA Server   │───▶│ TLS Server  │
+│ Challenge   │    │ (Port 8443) │    │ (Port 8444) │
+│ (bbHHh!)    │    │ Independent │    │ After ICMP  │
+└─────────────┘    └─────────────┘    └─────────────┘
+     Step 1           Step 2           Step 3
+```
+
+**🔒 Security Architecture:**
+- **Step 1**: ICMP challenge must be completed first (`bbHhh!` hint disappears)
+- **Step 2**: CA server runs independently - participants manually start when ready
+- **Step 3**: TLS server (port 8444) **only starts after** ICMP completion
+- **🚨 Bypass Protection**: Certificates alone cannot skip ICMP - TLS server remains inaccessible until Step 1 is complete
+
+### 🛡️ Enhanced Security Model
+
+**Persistent State Tracking**: The CTF server now implements robust bypass prevention through persistent ICMP completion state tracking:
+
+```
+SECURITY ENHANCEMENTS:
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│ ICMP Challenge  │───▶│ State Persisted │───▶│ TLS Available   │
+│ Completion      │    │ (JSON File)     │    │ Across Restarts │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+**Key Security Features:**
+- **🔄 Persistent State**: ICMP completion status saved to `ctf_icmp_state.json`
+- **🚫 Restart-Proof**: Server restarts cannot bypass completed ICMP challenges
+- **🔍 Continuous Checking**: `while` loop ensures ICMP completion before TLS access
+- **✅ Legitimate Flow**: Previously completed challenges remain accessible
+- **🔧 Debug Support**: `_reset_icmp_state()` method for testing scenarios
+
+**Attack Prevention:**
+- **Server Restart Bypass**: ❌ State persists across restarts
+- **Direct TLS Connection**: ❌ TLS server only starts after ICMP completion
+- **Certificate-Only Access**: ❌ Valid certificates alone cannot bypass ICMP requirement
 
 ### Phase 1: ICMP Covert Channel (⭐⭐⭐☆☆)
 
@@ -334,3 +395,58 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 ---
 
 ## 🚨 CLASSIFIED OPERATION COMPLETE 🚨
+
+## Main CTF Flow and Audio Challenge
+
+1. **Forensic & Certificate Phase**  
+   - The participant must recover the deleted `client.key` file and generate a CSR.
+   - The CSR must be edited (e.g., CN and O fields) before being signed by the CA server (`ca.crt`).
+   - The CA signs the edited CSR, producing a valid `client.crt`.
+
+2. **ICMP Challenge**  
+   - The participant must pass the ICMP covert channel challenge to unlock the TLS server.
+
+3. **TLS Handshake & HTTP Request**  
+   - The participant connects to the CTF server using the signed `client.crt` and `client.key`.
+   - The participant sends a `GET /resource` request, as seen in the provided PCAP file.
+
+4. **Welcome & Enigma Challenge**  
+   - The CTF server verifies the certificate fields and responds with a personalized hello message, inviting the participant to the “Iran college.”
+   - The server sends a set of messages encrypted with an Enigma machine, and downloads an image of the Enigma machine to the participant’s PC.
+   - The Enigma machine’s properties (rotor settings, etc.) are hidden in the hex view of the image.
+   - The Enigma messages include a hint:  
+     `Request the secret audio with GET /audio and inspect the response in your proxy tool.`
+
+5. **Decryption & Audio Challenge**  
+   - The participant decrypts the Enigma messages, which instruct them to request another message.
+   - The server sends a BASE64-encoded byte stream of an MP3 file as a plain text HTTP response when the participant sends `GET /audio`.
+   - The participant uses Burp Suite (or another HTTP proxy) to view and extract the BASE64 data, decodes it to an MP3 file, and plays it.
+   - The MP3 contains the Mario theme, and at the end, a Morse code message embedded using Audacity reveals the CTF flag.
+
+---
+
+### Technical Implementation Notes
+
+- The server only responds to `GET /audio` after the Enigma challenge is solved.
+- The MP3 is sent as BASE64 in the HTTP response body, making it easy to extract with Burp Suite.
+- The flag is embedded as Morse code at the end of the MP3 using Audacity.
+- The Enigma image is sent as a file, with its settings hidden in the hex view.
+
+---
+
+### Example: Sending BASE64 MP3 in Server Code
+
+```python
+import base64
+
+def send_audio(self, ssl_socket):
+    with open('music/mario.mp3', 'rb') as f:
+        b64_mp3 = base64.b64encode(f.read())
+    response = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\n" + b64_mp3
+    ssl_socket.sendall(response)
+```
+
+- Only call `send_audio` if the participant has solved the Enigma challenge.
+- The participant can copy the BASE64 from Burp Suite, decode, and play the MP3 to get the flag.
+
+---

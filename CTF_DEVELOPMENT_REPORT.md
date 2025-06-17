@@ -10,6 +10,66 @@
 
 ---
 
+## Table of Contents
+
+- [📊 Project Statistics](#-project-statistics)
+- [🎯 Project Overview](#-project-overview)
+  - [Mission Statement](#mission-statement)
+  - [Core Architecture](#core-architecture)
+  - [Educational Objectives](#educational-objectives)
+- [🏗️ Architecture & Design Philosophy](#️-architecture--design-philosophy)
+  - [System Architecture Overview](#system-architecture-overview)
+  - [Progressive Difficulty Design](#progressive-difficulty-design)
+  - [Core Technical Implementation](#core-technical-implementation)
+  - [Integrated Learning Approach](#integrated-learning-approach)
+- [📡 Phase 1: ICMP Covert Channel Challenge](#-phase-1-icmp-covert-channel-challenge)
+  - [Design Rationale & Educational Goals](#design-rationale--educational-goals)
+  - [Technical Implementation Analysis](#technical-implementation-analysis)
+  - [Advanced Challenge Features](#advanced-challenge-features)
+  - [Challenge Flow & Discovery Process](#challenge-flow--discovery-process)
+  - [Reference Implementation (Instructor Tool)](#reference-implementation-instructor-tool)
+- [🔐 Phase 2: Certificate Authority Challenge](#-phase-2-certificate-authority-challenge)
+  - [Design Philosophy & Real-World Relevance](#design-philosophy--real-world-relevance)
+  - [Server Architecture & Implementation](#server-architecture--implementation)
+  - [Advanced PKI Operations](#advanced-pki-operations)
+  - [Multi-Phase Challenge Flow](#multi-phase-challenge-flow)
+  - [Educational Integration](#educational-integration)
+- [🔍 Phase 3: Enigma Cryptographic Challenge](#-phase-3-enigma-cryptographic-challenge)
+  - [Advanced Multi-Disciplinary Design](#advanced-multi-disciplinary-design)
+  - [Comprehensive Implementation Architecture](#comprehensive-implementation-architecture)
+  - [Advanced Technical Components](#advanced-technical-components)
+  - [Multi-Phase Challenge Flow](#multi-phase-challenge-flow-1)
+  - [Educational Complexity Layers](#educational-complexity-layers)
+  - [Challenge Validation & Completion](#challenge-validation--completion)
+- [🖥️ User Interface & Control System](#️-user-interface--control-system)
+  - [Comprehensive GUI Implementation](#comprehensive-gui-implementation)
+  - [Key Interface Features](#key-interface-features)
+  - [Visual Design & User Experience](#visual-design--user-experience)
+  - [Command Line Alternative](#command-line-alternative)
+- [🔧 Technical Implementation Highlights](#-technical-implementation-highlights)
+  - [Advanced Network Protocol Integration](#1-advanced-network-protocol-integration)
+  - [Sophisticated Multi-Threading Architecture](#2-sophisticated-multi-threading-architecture)
+  - [Comprehensive SSL/TLS Security Implementation](#3-comprehensive-ssltls-security-implementation)
+  - [Cross-Platform Compatibility & Deployment](#4-cross-platform-compatibility--deployment)
+  - [Educational Scaffolding & Progressive Hints](#5-educational-scaffolding--progressive-hints)
+  - [Robust Error Handling & Logging](#6-robust-error-handling--logging)
+  - [Memory-Efficient Data Management](#7-memory-efficient-data-management)
+- [📊 Learning Outcomes Assessment](#-learning-outcomes-assessment)
+  - [Comprehensive Network Security Concepts Integration](#comprehensive-network-security-concepts-integration)
+  - [Skill Development Progression Matrix](#skill-development-progression-matrix)
+  - [Assessment Methodology & Validation](#assessment-methodology--validation)
+  - [Real-World Application & Industry Relevance](#real-world-application--industry-relevance)
+- [🎓 Educational Impact & Innovation](#-educational-impact--innovation)
+- [🔍 Quality Assurance & Testing](#-quality-assurance--testing)
+- [📈 Project Metrics & Achievements](#-project-metrics--achievements)
+- [🚀 Future Enhancement Opportunities](#-future-enhancement-opportunities)
+- [📝 Conclusion](#-conclusion)
+- [Comprehensive Testing & Validation Results](#comprehensive-testing--validation-results)
+- [🎯 Final Technical Implementation Summary](#-final-technical-implementation-summary)
+- [## Certificate & Challenge Access Scenarios](#certificate--challenge-access-scenarios)
+
+---
+
 ## 📊 Project Statistics
 
 **Technical Implementation Metrics:**
@@ -321,6 +381,88 @@ def verify_client_cert(cert: bytes) -> bool:
 - **PKI Understanding**: Complete certificate lifecycle management
 - **Attack Methodology**: End-to-end MITM attack implementation
 
+### Common Challenge Errors & Troubleshooting
+
+**SSL Handshake Certificate Mismatch Error**:
+```
+ICMP Challenge completed successfully. Starting TLS Collaborator Server...
+Initializing server for collaborator connections...
+Listening on 127.0.0.1:8444
+Server: Collaborator connected from ('127.0.0.1', 59481)
+SSL Handshake with ('127.0.0.1', 59481) failed: [SSL: PEER_DID_NOT_RETURN_A_CERTIFICATE] peer did not return a certificate (_ssl.c:1018)
+```
+
+**Root Cause Analysis**:
+This error occurs when the client certificate and private key are not a matching cryptographic pair. The SSL handshake fails because the certificate's public key doesn't correspond to the private key being used.
+
+**Diagnostic Procedure**:
+```bash
+# Step 1: Verify certificate and key compatibility using OpenSSL
+# Extract modulus from certificate
+openssl x509 -noout -modulus -in client.crt | openssl md5
+
+# Extract modulus from private key
+openssl rsa -noout -modulus -in client.key | openssl md5
+
+# Compare the MD5 hashes - they MUST be identical for a valid pair
+# Example of mismatched pair:
+# Certificate: MD5(stdin)= 0de68690fa5363b021623446165f56be
+# Private Key: MD5(stdin)= 832c1531302bccb6d91a16c3b30b4ee5
+```
+
+**Solution Methodology**:
+
+**Option 1: Generate New CSR with Existing Private Key**
+```python
+# Use the existing client.key to generate a new CSR
+from cryptography.hazmat.primitives import serialization
+from cryptography import x509
+from cryptography.x509.oid import NameOID
+
+# Load the existing private key
+with open('client.key', 'rb') as f:
+    private_key = serialization.load_pem_private_key(f.read(), password=None)
+
+# Generate new CSR with the existing private key
+csr = x509.CertificateSigningRequestBuilder().subject_name(x509.Name([
+    x509.NameAttribute(NameOID.COUNTRY_NAME, "IR"),
+    x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "Tehran"),
+    x509.NameAttribute(NameOID.LOCALITY_NAME, "Tehran"),
+    x509.NameAttribute(NameOID.ORGANIZATION_NAME, "None"),  # Modify with Burp
+    x509.NameAttribute(NameOID.ORGANIZATIONAL_UNIT_NAME, "Cybersecurity Department"),
+    x509.NameAttribute(NameOID.COMMON_NAME, "None"),  # Modify with Burp
+])).sign(private_key, hashes.SHA512())
+```
+
+**Option 2: Use Embedded Certificate/Key Pair**
+```python
+# Extract working embedded certificates from code
+from tls.protocol import ClientConfig
+
+# Save embedded certificate and key (guaranteed to match)
+with open('client.crt', 'w') as f:
+    f.write(ClientConfig.CERT)
+    
+with open('client.key', 'w') as f:
+    f.write(ClientConfig.KEY)
+```
+
+**Burp Suite CSR Modification Process**:
+1. **Configure Proxy**: Set CA client to use Burp Suite proxy (127.0.0.1:8080)
+2. **Intercept CSR**: Capture the HTTP POST request containing the CSR
+3. **Modify Subject Fields**: 
+   - Change `Organization: "None"` → `"Sharif University of Technology"`
+   - Change `Common Name: "None"` → `"Shay"`
+4. **Forward Request**: Send modified CSR to CA server
+5. **Verify Match**: Ensure returned certificate matches the original private key
+
+**Educational Value**:
+This troubleshooting process teaches participants:
+- **Certificate/Key Pair Validation**: Understanding cryptographic relationships
+- **OpenSSL Command Mastery**: Professional certificate analysis tools
+- **PKI Troubleshooting**: Real-world certificate authority issues
+- **Security Tool Integration**: Combining multiple tools for problem resolution
+
 ---
 
 ## 🔍 Phase 3: Enigma Cryptographic Challenge
@@ -463,109 +605,66 @@ def validate_enigma_completion():
 
 ## 🖥️ User Interface & Control System
 
-### Comprehensive GUI Implementation
-The platform features a sophisticated tkinter-based control interface that provides complete operational management of the CTF infrastructure.
+### Management Interface Overview
+The platform includes a comprehensive management interface that provides operational control over the CTF infrastructure. The system supports both graphical and command-line interfaces to accommodate different user preferences and deployment scenarios.
 
-```python
-# Advanced GUI with military-themed interface and real-time monitoring
-class CTFGui:
-    def __init__(self, root: tk.Tk) -> None:
-        self.root = root
-        self.root.title("🚁 Operation BLACKBIRD - Drone Command & Control Interface")
-        self.root.geometry("1000x750")
-        self.root.configure(bg="#1a1a1a")  # Military dark theme
-        
-        # Advanced queue-based communication system
-        self.client_update_queue: queue.Queue[Any] = queue.Queue()
-        self.client_message_queue: queue.Queue[Any] = queue.Queue()
-        self.subprocess_output_queue: queue.Queue[Any] = queue.Queue()
+### Interface Architecture & Design Philosophy
+The control system implements a **dual-interface approach** designed for maximum flexibility:
+
+**1. Graphical User Interface (GUI)**:
+- Centralized control panel for complete CTF infrastructure management
+- Real-time monitoring of server status and client connections
+- Integrated process management for multi-component architecture
+- Visual feedback systems with military-themed aesthetic design
+- Queue-based communication system for responsive user experience
+
+**2. Command-Line Interface (CLI)**:
+- Professional-grade terminal interface for advanced users
+- Direct server component control and management
+- Suitable for headless deployments and automation
+- Full feature parity with GUI functionality
+
+### Core Management Features
+
+**Real-Time System Monitoring**:
+- Live server status tracking with visual indicators
+- Active client connection monitoring and management
+- Process lifecycle management for multi-server architecture
+- Real-time log streaming and error reporting
+
+**Multi-Component Process Management**:
+- Integrated control of ICMP challenge server
+- Certificate Authority server deployment and monitoring
+- Coordinated startup and shutdown procedures
+- Cross-component communication and status synchronization
+
+**Educational Administration Tools**:
+- Challenge progress tracking and participant monitoring
+- Phase transition management and validation
+- Educational hint system administration
+- Performance metrics and completion analytics
+
+### Deployment & Operation Models
+
+**Graphical Interface Deployment**:
+```bash
+# Recommended for educational environments and demonstrations
+python -m tls.gui
 ```
 
-### Key Interface Features
-
-**1. Real-Time Server Monitoring**:
-```python
-# Live server status tracking with visual indicators
-def _update_status_bar(self) -> None:
-    if self.server_thread and self.server_thread.is_alive():
-        status = "🟢 OPERATIONAL"
-        clients_count = len(self.client_list)
-        self.status_label.config(
-            text=f"📡 Drone Core: {status} | 🤖 Active Bots: {clients_count}"
-        )
+**Command-Line Deployment**:
+```bash
+# Professional deployment for production or headless environments
+python -m tls.ctf_server  # Main CTF server
+python -m tls.server_challenges.ca_challenge  # CA server (separate terminal)
 ```
 
-**2. Process Management System**:
-```python
-# Sophisticated subprocess handling for CA server
-def _start_ca_process(self) -> None:
-    if self.ca_process is None or self.ca_process.poll() is not None:
-        try:
-            command = [sys.executable, "-u", "-m", "tls.server_challenges.ca_challenge"]
-            self.ca_process = subprocess.Popen(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                bufsize=0  # Unbuffered for real-time output
-            )
-            # Threaded output capture for non-blocking GUI
-            threading.Thread(target=stream_output, 
-                           args=(self.ca_process.stdout, self.subprocess_output_queue, "CA_OUT"), 
-                           daemon=True).start()
-```
-
-**3. Advanced Queue Processing**:
-```python
-# Non-blocking queue processing for responsive GUI
-def _process_queues(self) -> None:
-    try:
-        # Process client connection updates
-        while not self.client_update_queue.empty():
-            update_type, client_id = self.client_update_queue.get_nowait()
-            if update_type == 'connect':
-                self._add_client_to_list(client_id)
-            elif update_type == 'disconnect':
-                self._remove_client_from_list(client_id)
-        
-        # Process real-time subprocess output
-        while not self.subprocess_output_queue.empty():
-            source, chunk = self.subprocess_output_queue.get_nowait()
-            self._display_client_output(source, chunk)
-            
-    except queue.Empty:
-        pass
-    finally:
-        self.root.after(100, self._process_queues)  # Continuous processing
-```
-
-### Visual Design & User Experience
-
-**Military Aesthetic Implementation**:
-- **Color Scheme**: Dark military theme (#1a1a1a backgrounds, #FF6B35 accents)
-- **Iconography**: Drone, satellite, robot emojis for visual clarity
-- **Typography**: Consolas monospace font for technical authenticity
-- **Layout**: Professional C&C (Command & Control) interface design
-
-**Real-Time Feedback Systems**:
-- Live server logs with color-coded message types
-- Active client connection tracking
-- Process status indicators
-- Error handling with meaningful user feedback
-
-### Command Line Alternative
-```python
-# Professional CLI interface for advanced users
-if __name__ == "__main__":
-    # Option 1: GUI Interface (Recommended)
-    python -m tls.gui
-    
-    # Option 2: CLI Interface
-    python -m tls.ctf_server  # Main CTF server
-    python -m tls.server_challenges.ca_challenge  # CA server
-```
+### Interface Integration Benefits
+- **Unified Control**: Single point of management for complex multi-component architecture
+- **Real-Time Feedback**: Immediate status updates and error reporting across all system components
+- **Educational Focus**: Simplified operation allowing instructors to focus on teaching rather than technical management
+- **Flexible Deployment**: Support for both interactive and automated deployment scenarios
+- **Cross-Platform Compatibility**: Consistent operation across Windows, Linux, and macOS environments
 
 ---
 
@@ -938,3 +1037,78 @@ This CTF platform represents a **production-grade educational framework** that s
 - **Comprehensive Assessment Framework**: Multi-dimensional skill evaluation matrix
 
 The platform successfully bridges the gap between **academic theoretical knowledge** and **real-world penetration testing skills**, providing participants with hands-on experience in advanced network security analysis, digital forensics, and cryptographic implementation.
+
+---
+
+## Certificate & Challenge Access Scenarios
+
+1. **Forensic Key Recovery**:
+   If the participant did not recover the `client.key` file in the forensic challenge (i.e., the key was deleted from their PC), they cannot connect to the CTF server. The client will fail to establish a TLS connection.
+
+2. **ICMP Challenge Gatekeeping**:
+   If the participant did not pass the ICMP challenge, the server will not open a socket to listen for TLS connections. The TLS server is only started after successful ICMP completion.
+
+3. **CSR Editing Requirement**:
+   If the participant did not edit the CSR before submitting it to the CA server for signing, the CTFServer (after passing the ICMP challenge) will print:
+   
+   `I don't know you`
+   
+   and close the connection.
+
+4. **Untrusted Certificate Handling**:
+   If the client presents a `client.crt` that was not signed by the CA (`ca.crt`), but is self-signed, the CTF server prints:
+   
+   `WARNING - Untrusted client certificate from ('127.0.0.1', 51827)`
+   
+   and closes the connection.
+
+---
+
+## Main CTF Flow (Summary)
+
+1. **Forensic & Certificate Phase**
+   - Participant recovers `client.key` and generates an edited CSR (CN and O fields changed).
+   - CA signs the edited CSR, producing a valid `client.crt`.
+
+2. **ICMP Challenge**
+   - Participant must pass the ICMP covert channel challenge to unlock the TLS server.
+
+3. **TLS Handshake & HTTP Request**
+   - Participant connects using the signed `client.crt` and `client.key`.
+   - Sends `GET /resource` as seen in the PCAP.
+
+4. **Welcome & Enigma Challenge**
+   - Server verifies certificate fields and responds with a hello message using the CN from the certificate.
+   - Sends Enigma-encrypted messages and an Enigma image (with settings hidden in hex view).
+   - Enigma messages include a hint: `Request the secret audio with GET /audio and inspect the response in your proxy tool.`
+
+5. **Decryption & Audio Challenge**
+   - Participant decrypts Enigma messages and requests `GET /audio`.
+   - Server sends BASE64-encoded MP3 in HTTP response.
+   - Participant extracts, decodes, and plays the MP3 to hear the flag in Morse code at the end.
+
+---
+
+### Note
+- The full CTF server code is included in `tls/ctf_server.py` and implements all the above logic.
+- See the README for a participant-facing version of the flow and technical details.
+
+### Sequence Diagram Source (Mermaid)
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant CA
+    participant CTFServer
+    Client->>+CA: Submit edited CSR (with changed CN/O)
+    CA-->>-Client: Signed client.crt
+    Client->>+CTFServer: ICMP challenge (5 pings, timing, etc.)
+    CTFServer-->>-Client: ICMP challenge passed, TLS server opens
+    Client->>+CTFServer: TLS handshake with client.crt & client.key
+    Client->>+CTFServer: GET /resource
+    CTFServer-->>Client: Hello <CN>! Welcome to the <O>
+    CTFServer-->>Client: Enigma-encrypted messages + Enigma image + hint for GET /audio
+    Client->>+CTFServer: GET /audio
+    CTFServer-->>Client: BASE64-encoded MP3 (Mario theme + Morse code flag)
+    Client->>Client: Decode, play MP3, extract flag from Morse code
+```

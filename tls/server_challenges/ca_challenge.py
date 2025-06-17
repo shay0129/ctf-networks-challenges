@@ -103,7 +103,7 @@ class CAChallenge:
         """Initialize CA server certificates and context"""
         try:
             # Initialize server certificates
-            download_file("ca.crt", CAConfig.CERT)
+            download_file("ca.crt", CAConfig.CERT) # For connect CTFServer
             self.cert_bytes = CAConfig.CERT.encode()
             self.key_bytes = CAConfig.KEY.encode()
             self.context = create_ca_server_ssl_context(self.cert_bytes, self.key_bytes)
@@ -117,27 +117,56 @@ class CAChallenge:
             raise
 
     def handle_client_request(self, ssl_socket: ssl.SSLSocket) -> bool:
-        """Handle incoming CSR request (minimal, direct)"""
+        """Handle incoming CSR request with enhanced logging"""
         try:
+            #logging.info("🔍 [CA_SERVER] New CSR request received")
             headers, initial_body = self._read_and_validate_request(ssl_socket)
             if not headers or initial_body is None:
                 return False
+                
+            #logging.info("📄 [CA_SERVER] Reading CSR from client request...")
             success, result = extract_csr(ssl_socket, headers, initial_body)
             if not success or not result:
+                logging.warning("❌ [CA_SERVER] Failed to extract CSR from request")
                 return False
+                
             original_csr, padded_checksum = result
+            #logging.info(f"📋 [CA_SERVER] CSR extracted successfully (length: {len(original_csr)} bytes)")
+            
+            # Log CSR details for CTF participants to see
+            # try:
+            #     from OpenSSL import crypto
+            #     csr_obj = crypto.load_certificate_request(crypto.FILETYPE_PEM, original_csr)
+            #     subject = csr_obj.get_subject()
+            #     logging.info("🔍 [CA_SERVER] CSR Subject Details:")
+            #     for component in subject.get_components():
+            #         name = component[0].decode('utf-8')
+            #         value = component[1].decode('utf-8')
+            #         logging.info(f"    {name}: {value}")
+            # except Exception as e:
+            #     logging.warning(f"⚠️  [CA_SERVER] Could not parse CSR subject: {e}")
+            
             if not validate_csr_checksum(original_csr, padded_checksum):
+                #logging.warning("❌ [CA_SERVER] CSR checksum validation failed")
                 return False
+                
             verify_result = verify_client_csr(original_csr, ssl_socket)
             if not verify_result:
+                #logging.warning("❌ [CA_SERVER] CSR verification failed")
                 return False
+                
+            #logging.info("✅ [CA_SERVER] CSR verified successfully, signing certificate...")
             cert = self.sign_csr(original_csr)
             if not cert:
+                #logging.error("❌ [CA_SERVER] Certificate signing failed")
                 return False
+                
+            #logging.info("📜 [CA_SERVER] Certificate signed successfully, sending to client")
             self.send_cert(ssl_socket, cert)
+            #logging.info("✅ [CA_SERVER] Certificate sent to client successfully")
             return True
         except Exception as e:
-            logging.critical(f"CA server error: {str(e)}")
+            #logging.critical(f"CA server error: {str(e)}")
             return False
 
     def _read_and_validate_request(self, ssl_socket: ssl.SSLSocket) -> tuple[dict[bytes, bytes] | None, bytes | None]:
@@ -158,7 +187,26 @@ class CAChallenge:
             if self.key_bytes is None or self.cert_bytes is None:
                 logging.critical("CA key or cert bytes are None")
                 return None
-            return sign_csr_with_ca(csr_pem=csr, ca_key_pem=self.key_bytes, ca_cert_pem=self.cert_bytes)
+                
+            #logging.info("🔑 [CA_SERVER] Signing CSR with CA private key...")
+            cert_bytes = sign_csr_with_ca(csr_pem=csr, ca_key_pem=self.key_bytes, ca_cert_pem=self.cert_bytes)
+            
+            if cert_bytes:
+                # Log certificate details for verification
+                try:
+                    from OpenSSL import crypto
+                    cert_obj = crypto.load_certificate(crypto.FILETYPE_PEM, cert_bytes)
+                    subject = cert_obj.get_subject()
+                    #logging.info("📜 [CA_SERVER] Signed Certificate Details:")
+                    for component in subject.get_components():
+                        name = component[0].decode('utf-8')
+                        value = component[1].decode('utf-8')
+                        #logging.info(f"    {name}: {value}")
+                    #logging.info(f"📅 [CA_SERVER] Certificate valid from {cert_obj.get_notBefore().decode()} to {cert_obj.get_notAfter().decode()}")
+                except Exception as e:
+                    logging.warning(f"⚠️  [CA_SERVER] Could not parse signed certificate: {e}")
+                    
+            return cert_bytes
         except Exception as e:
             logging.critical(f"CA sign error: {str(e)}")
             return None
@@ -166,12 +214,14 @@ class CAChallenge:
     def send_cert(self, ssl_socket: ssl.SSLSocket, cert: bytes) -> None:
         """Send the signed certificate to the client as a valid HTTP response."""
         try:
+            #logging.info(f"📤 [CA_SERVER] Sending signed certificate to client ({len(cert)} bytes)")
             # Prepare HTTP response headers
             response_headers = b"HTTP/1.1 200 OK\r\n"
             response_headers += b"Content-Type: application/x-pem-file\r\n"
             response_headers += f"Content-Length: {len(cert)}\r\n".encode()
             response_headers += b"Connection: close\r\n\r\n"
             ssl_socket.sendall(response_headers + cert)
+            #logging.info("✅ [CA_SERVER] Certificate response sent successfully")
         except Exception as e:
             logging.critical(f"CA send cert error: {e}")
 

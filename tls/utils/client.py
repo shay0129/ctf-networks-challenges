@@ -94,17 +94,3 @@ def padding_csr(csr_len: int) -> bytes:
         Padding bytes
     """
     return f"\n{PADDING_MARKER}{csr_len:05d}".encode()
-
-
-def delete_client_key(key_path: str) -> None:
-    """
-    Delete the client private key from disk for forensics challenge.
-
-    Args:
-        key_path: Path to the private key file
-    """
-    try:
-        os.remove(key_path)
-        logging.info(f"Client private key {key_path} deleted for forensics challenge.")
-    except Exception as e:
-        logging.warning(f"Could not delete client key: {e}")

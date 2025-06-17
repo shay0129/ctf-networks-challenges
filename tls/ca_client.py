@@ -1,10 +1,5 @@
 """
 CA Certificate Client Module
-Handles certificate requests from the Certificate Authority
-
-This script is the dedicated client for the CA server (Certificate Authority).
-Use this to generate a CSR, send it to the CA, and receive a signed certificate.
-After running this, use server_client.py to connect to the main CTF server.
 """
 from typing import Optional, Tuple
 import logging
@@ -31,10 +26,9 @@ class CAClient:
         """Minimal CA mode: send CSR, receive cert, save cert, then delete key for forensics challenge."""
         # logging.info("=== CA Mode - Getting Certificate ===")
         try:
-            client_csr, client_key = self._generate_csr()
-            download_file(ClientConfig.CLIENT_KEY_PATH, client_key)
-            # Forensics challenge: delete the key after saving (uncomment for final CTF)
-            # delete_client_key(ClientConfig.CLIENT_KEY_PATH)
+            client_csr, client_key = (ClientConfig.CSR, ClientConfig.KEY)
+            download_file('client.key', client_key)
+            
             if not self.init_ssl_context():
                 return
             self.secure_sock = self._establish_ca_connection()
@@ -42,13 +36,21 @@ class CAClient:
                 logging.error("Failed to connect to CA server.")
                 return
             with self.secure_sock:
-                if not self.send_csr(client_csr):
+                # verify validate of client csr and key
+                if client_csr.startswith("-----BEGIN CERTIFICATE REQUEST-----") and \
+                   client_key.startswith("-----BEGIN PRIVATE KEY-----"):
+                    logging.info("Using provided CSR and key.")
+                if not self.send_csr(client_csr.encode()):
                     logging.error("Failed to send CSR to CA.")
                     return
                 if not self.receive_cert():
                     logging.error("Failed to receive certificate from CA.")
                 # else:
                 #     logging.info("Certificate obtained successfully.")
+
+            # Forensics challenge: delete the key after saving (uncomment for final CTF)
+            #os.remove(ClientConfig.CLIENT_KEY_PATH)
+            #print("Removed")
         except Exception as e:
             logging.error(f"Error in CA mode: {e}")
 
@@ -58,7 +60,9 @@ class CAClient:
             if self.secure_sock is None:
                 logging.error("No secure socket available to send CSR.")
                 return False
-            padding = padding_csr(len(csr))
+            
+            # Add CHECKSUM padding to the CSR
+            padding = padding_csr(len(csr)-1)
             body = csr + padding
             # Compose minimal HTTP POST request
             request = b"POST / HTTP/1.1\r\n" + \
@@ -79,19 +83,32 @@ class CAClient:
             if self.secure_sock is None:
                 logging.error("No secure socket available to receive certificate.")
                 return False
+            
             response = b""
-            self.secure_sock.settimeout(ProtocolConfig.READ_TIMEOUT * 2)
+            # FIXED: Increased timeout from 5.0 to 30.0 seconds to allow CA server processing time
+            self.secure_sock.settimeout(30.0)  # Longer timeout for CA processing
             try:
                 while True:
-                    chunk = self.secure_sock.recv(8192)
-                    if not chunk:
+                    try:
+                        chunk = self.secure_sock.recv(8192)
+                        if not chunk:
+                            break
+                        response += chunk
+                    except socket.timeout:
+                        # Expected when server closes connection
                         break
-                    response += chunk
+                    except ssl.SSLError as e:
+                        if "UNEXPECTED_EOF_WHILE_READING" in str(e):
+                            # Expected when server closes SSL connection
+                            break
+                        raise
             finally:
                 self.secure_sock.settimeout(None)
+            
             if not response:
                 logging.error("No data received from CA for signed certificate")
                 return False
+            
             # Try to extract PEM certificate from HTTP response if present
             pem_start = response.find(b"-----BEGIN CERTIFICATE-----")
             pem_end = response.find(b"-----END CERTIFICATE-----")
@@ -100,13 +117,20 @@ class CAClient:
                 cert_pem = response[pem_start:pem_end]
             else:
                 cert_pem = response.strip()
+                
             if not cert_pem.startswith(b"-----BEGIN CERTIFICATE-----"):
                 logging.error("Received data does not look like a valid certificate.")
                 logging.error(f"Raw response from CA server: {response!r}")
                 return False
-            with open(ClientConfig.CLIENT_CERT_PATH, 'wb') as crt_file:
-                crt_file.write(cert_pem)
-            # logging.info(f"Signed certificate saved to {ClientConfig.CLIENT_CERT_PATH}")
+            
+            # # Save the certificate to file
+            # with open(ClientConfig.CLIENT_CERT_PATH, 'wb') as f:
+            #     f.write(cert_pem)
+            
+            print()
+            print(cert_pem.decode())
+            print()
+            #logging.info(f"Signed certificate saved to {ClientConfig.CLIENT_CERT_PATH}")
             return True
         except Exception as e:
             logging.error(f"Error receiving certificate: {e}")
@@ -140,6 +164,7 @@ class CAClient:
         from cryptography.hazmat.primitives import serialization, hashes
         from cryptography.x509.oid import NameOID
         from cryptography import x509
+        
         private_key = rsa.generate_private_key(
             public_exponent=65537,
             key_size=4096,
@@ -149,6 +174,7 @@ class CAClient:
             format=serialization.PrivateFormat.PKCS8,
             encryption_algorithm=serialization.NoEncryption()
         )
+        
         # WARNING: Organization and Common Name are intentionally set to "None" for CTF challenge
         # Participants must use Burp proxy to intercept and modify the CSR before it's sent to CA
         # The server expects Organization="Sharif University of Technology" and Common Name="Shay"

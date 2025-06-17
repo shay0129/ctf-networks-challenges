@@ -30,20 +30,21 @@ def create_client_ssl_context() -> Optional[ssl.SSLContext]:
             except AttributeError:
                 # Fallback for older Python versions
                 context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
-        
-        context.set_ciphers('AES128-SHA256')
+            context.set_ciphers('AES128-SHA256')
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
         
         # Load client certificate and key
         try:
             context.load_cert_chain(
-                certfile=ClientConfig.CLIENT_CERT_PATH,
-                keyfile=ClientConfig.CLIENT_KEY_PATH
+                certfile='client.crt',
+                keyfile='client.key'
             )
-        except FileNotFoundError:
+        except FileNotFoundError as e:
+            print(f"FileNotFoundError: {e}")
             return None
-        except Exception:
+        except Exception as e:
+            print(f"Exception loading cert chain: {e}")
             return None
 
         return context
